@@ -175,6 +175,51 @@ export const MIGRATIONS: Migration[] = [
       ).run(crypto.randomUUID(), new Date().toISOString());
     }
   },
+
+  // ---------------------------------------------------------------- 4
+  // Stage 5: trackers and log entries. (Stage 4, screenshot import, needed
+  // no new tables: it saves ordinary plans.)
+  (db) => {
+    db.exec(`
+    -- A tracker: "please keep an eye out for this".
+    CREATE TABLE trackers (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      kind         TEXT NOT NULL CHECK (kind IN ('yesno', 'scale', 'note')),
+      -- Your keywords, as a JSON list: clues for Jev (stage 7), not rules.
+      hint_words   TEXT NOT NULL DEFAULT '[]',
+      -- 0: logged quietly, and she never raises it unprompted.
+      can_bring_up INTEGER NOT NULL DEFAULT 1,
+      position     INTEGER NOT NULL,
+      created_at   TEXT NOT NULL
+    );
+
+    -- A log entry: a sticker on a day. Deleting a tracker deletes its entries.
+    CREATE TABLE log_entries (
+      id         TEXT PRIMARY KEY,
+      tracker_id TEXT NOT NULL REFERENCES trackers (id) ON DELETE CASCADE,
+      date       TEXT NOT NULL,
+      -- "yes"/"no", a number from 1 to 10, or a note: whatever the tracker records.
+      value      TEXT NOT NULL,
+      -- How it got there: you added it, processing committed it, or she asked and you confirmed.
+      source     TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'processing', 'confirmed')),
+      -- The message it came from. If that message is deleted, the entry stays.
+      message_id TEXT REFERENCES messages (id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX log_entries_by_date ON log_entries (date);
+    `);
+
+    // Like the planner, trackers are a channel type; an existing server gets one.
+    const { count } = db.query("SELECT COUNT(*) AS count FROM channels").get() as { count: number };
+    if (count > 0) {
+      db.query(
+        `INSERT INTO channels (id, name, kind, position, created_at)
+         VALUES (?, 'trackers', 'trackers', (SELECT MAX(position) + 1 FROM channels), ?)`,
+      ).run(crypto.randomUUID(), new Date().toISOString());
+    }
+  },
 ];
 
 /**

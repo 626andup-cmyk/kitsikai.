@@ -52,6 +52,8 @@
     <script src="/planner.js" defer></script>
     <!-- Importing shifts from a schedule screenshot (stage 4). -->
     <script src="/screenshot.js" defer></script>
+    <!-- The trackers channel's screen, and stickers on calendar days (stage 5). -->
+    <script src="/trackers.js" defer></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -83,6 +85,10 @@
           fill="currentColor"
           d="M7 2h2v2h6V2h2v2h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V2ZM5 9v10h14V9H5Zm2 2h3v3H7v-3Z"
         />
+      </symbol>
+      <symbol id="icon-trackers" viewBox="0 0 24 24">
+        <!-- A little chart: the trackers channel. -->
+        <path fill="currentColor" d="M4 3h2v16h15v2H4V3Zm4 10h3v4H8v-4Zm5-5h3v9h-3V8Zm5-3h3v12h-3V5Z" />
       </symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24">
         <path fill="currentColor" d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z" />
@@ -206,6 +212,21 @@
           <div id="week-view" class="week-view" hidden>
             <div id="week-list" class="week-list"></div>
           </div>
+        </section>
+
+        <!--
+          The trackers channel's screen (stage 5): what she keeps an eye out
+          for, and the stickers logged for each. Filled in by trackers.js.
+        -->
+        <section id="trackers" class="trackers-view" hidden>
+          <header class="trackers-toolbar">
+            <p class="hint trackers-intro">
+              Things she keeps an eye out for. Each sticker is something that happened, on a day. You can add them here
+              or on a day in the planner.
+            </p>
+            <button type="button" class="button button-primary" id="new-tracker">New tracker</button>
+          </header>
+          <div id="tracker-list" class="tracker-list"></div>
         </section>
 
         <footer class="composer surface" id="composer">
@@ -373,6 +394,14 @@
           <label class="kind-option">
             <input type="radio" name="kind" value="text" checked />
             <span><strong># Text</strong><br /><span class="hint">A conversation with her.</span></span>
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="trackers" />
+            <span
+              ><strong>📈 Trackers</strong><br /><span class="hint"
+                >What she keeps an eye out for, and a sticker for each time it happens. You can only have one.</span
+              ></span
+            >
           </label>
           <label class="kind-option">
             <input type="radio" name="kind" value="planner" />
@@ -772,6 +801,90 @@
         <button type="button" class="button" data-close>Cancel</button>
         <button type="button" class="button button-primary" id="import-save">Looks good, save</button>
       </div>
+    </dialog>
+
+    <!-- A tracker: "please keep an eye out for this" (stage 5). -->
+    <dialog id="tracker-dialog" class="dialog surface">
+      <form id="tracker-form" method="dialog">
+        <h2 class="dialog-title" id="tracker-title">Tracker</h2>
+
+        <label for="tracker-name">Name</label>
+        <input id="tracker-name" name="name" autocomplete="off" placeholder="e.g. headache, took meds, payday" />
+
+        <fieldset class="kind-picker">
+          <legend>Records</legend>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="yesno" />
+            <span><strong>Yes or no</strong><br /><span class="hint">Whether it happened, like taking your meds.</span></span>
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="scale" />
+            <span><strong>A scale from 1 to 10</strong><br /><span class="hint">How much, like a headache.</span></span>
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="note" />
+            <span><strong>A note</strong><br /><span class="hint">A few words, like how much payday was.</span></span>
+          </label>
+        </fieldset>
+
+        <label for="tracker-hints">Hint words</label>
+        <input id="tracker-hints" name="hintWords" autocomplete="off" placeholder="e.g. head, migraine, ibuprofen" />
+        <p class="hint">
+          Separated by commas. Clues for her, not rules: she still decides whether it actually happened, so "I don't
+          have a headache" doesn't log one.
+        </p>
+
+        <label class="check-option">
+          <input type="checkbox" name="canBringUp" />
+          <span
+            ><strong>She can bring it up</strong><br /><span class="hint"
+              >If off, it's logged quietly and she never raises it unprompted.</span
+            ></span
+          >
+        </label>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="tracker-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A log entry: a sticker on a day (stage 5). -->
+    <dialog id="log-entry-dialog" class="dialog surface">
+      <form id="log-entry-form" method="dialog">
+        <h2 class="dialog-title" id="log-entry-title">Sticker</h2>
+
+        <div class="grid assignment-grid">
+          <div>
+            <label for="log-entry-tracker">Tracker</label>
+            <select id="log-entry-tracker" name="trackerId"></select>
+          </div>
+          <div>
+            <label for="log-entry-date">Day</label>
+            <input id="log-entry-date" name="date" type="date" />
+          </div>
+        </div>
+
+        <label for="log-entry-value">Value</label>
+        <div id="log-entry-value-box"></div>
+
+        <p class="hint" id="log-entry-source"></p>
+        <p id="log-entry-message"></p>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="log-entry-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
     </dialog>
 
     <!-- Shows the exact prompt stack her next turn would send. -->

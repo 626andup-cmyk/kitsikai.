@@ -284,5 +284,67 @@ describeUi("the app in a browser", () => {
     await page.waitForSelector(".shift-chip");
     expect(t.errors).toEqual([]);
   });
+
+  test("trackers: make one, log today, edit the sticker from the strip, delete the tracker", async () => {
+    const { page, app } = t;
+    await page.click('.channel-link:has-text("trackers")');
+    await page.waitForSelector(".trackers-empty");
+    await page.click("#new-tracker");
+    await page.fill("#tracker-name", "headache");
+    await page.check('#tracker-form input[value="scale"]');
+    await page.fill("#tracker-hints", "head, migraine");
+    await page.click('#tracker-form button[type="submit"]');
+    await page.waitForSelector('.tracker-card:has-text("headache")');
+    expect(await page.textContent(".tracker-hints")).toBe("headmigraine");
+
+    await page.selectOption(".quick-log-scale", "7");
+    await page.click('.quick-log button:has-text("Log")');
+    await page.waitForSelector(".tracker-day.today .log-sticker");
+    expect(await page.textContent(".tracker-day.today .log-sticker")).toBe("7/10");
+
+    await page.click(".tracker-day.today .log-sticker");
+    expect(await page.textContent("#log-entry-source")).toBe("You added this.");
+    await page.selectOption("#log-entry-value", "4");
+    await page.click('#log-entry-form button[type="submit"]');
+    await page.waitForFunction("document.querySelector('.tracker-day.today .log-sticker')?.textContent === '4/10'");
+    expect(app.store.trackers.entries()[0]).toMatchObject({ value: "4", source: "user" });
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.click(".tracker-edit");
+    await page.click("#tracker-delete");
+    await page.waitForSelector(".trackers-empty");
+    expect(app.store.trackers.entries()).toEqual([]);
+    expect(t.errors).toEqual([]);
+  });
+
+  test("stickers on calendar days, and 'show the message' jumps to where one came from", async () => {
+    const { page, app } = t;
+    const general = app.store.listChannels()[0]!;
+    const message = app.store.addMessage({ channelId: general.id, author: "user", content: "took my meds finally" });
+    const meds = app.store.trackers.create({ name: "meds", kind: "yesno" });
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    app.store.trackers.addEntry({ trackerId: meds.id, date: today, value: "yes", source: "processing", messageId: message.id });
+    const headache = app.store.trackers.create({ name: "headache", kind: "note" });
+
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day.today .calendar-stickers");
+    await page.waitForSelector('.day-stickers .log-sticker:has-text("meds ✓")');
+
+    // Add another from the day panel.
+    await page.click(".day-sticker-add");
+    await page.selectOption("#log-entry-tracker", headache.id);
+    await page.fill("#log-entry-value", "mild, afternoon");
+    await page.click('#log-entry-form button[type="submit"]');
+    await page.waitForSelector('.day-stickers .log-sticker:has-text("mild, afternoon")');
+
+    // The meds sticker came from chat: show that message.
+    await page.click('.day-stickers .log-sticker:has-text("meds")');
+    expect(await page.textContent("#log-entry-source")).toContain("processing");
+    await page.click("#log-entry-message .message-link");
+    await page.waitForSelector(`.message.highlighted[data-message-id="${message.id}"]`);
+    expect(await page.textContent("#channel-name")).toBe("general");
+    expect(t.errors).toEqual([]);
+  });
 });
 

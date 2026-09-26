@@ -33,8 +33,8 @@ describe("channels", () => {
   test("can be created with a topic, at the bottom of the list", async () => {
     const { status, data } = await call("POST", "/api/channels", { name: "Work Stuff", topic: " venting about shifts " });
     expect(status).toBe(200);
-    expect(data.channel).toMatchObject({ name: "work-stuff", kind: "text", topic: "venting about shifts", position: 2 });
-    expect(data.channels.map((c: Channel) => c.name)).toEqual(["general", "planner", "work-stuff"]);
+    expect(data.channel).toMatchObject({ name: "work-stuff", kind: "text", topic: "venting about shifts", position: 3 });
+    expect(data.channels.map((c: Channel) => c.name)).toEqual(["general", "planner", "trackers", "work-stuff"]);
   });
 
   test("are checked when created", async () => {
@@ -54,18 +54,18 @@ describe("channels", () => {
 
   test("can be reordered, with every channel listed exactly once", async () => {
     const b = app.store.createChannel({ name: "b", kind: "text" });
-    const planner = app.store.listChannels().find((c) => c.kind === "planner")!;
-    const { data } = await call("PUT", "/api/channels/order", { ids: [b.id, planner.id, general.id] });
-    expect(data.channels.map((c: Channel) => c.name)).toEqual(["b", "planner", "general"]);
+    const [, planner, trackers] = app.store.listChannels();
+    const { data } = await call("PUT", "/api/channels/order", { ids: [b.id, planner!.id, trackers!.id, general.id] });
+    expect(data.channels.map((c: Channel) => c.name)).toEqual(["b", "planner", "trackers", "general"]);
     expect((await call("PUT", "/api/channels/order", { ids: [b.id, general.id] })).status).toBe(400);
-    expect((await call("PUT", "/api/channels/order", { ids: [b.id, b.id, general.id] })).status).toBe(400);
+    expect((await call("PUT", "/api/channels/order", { ids: [b.id, b.id, planner!.id, general.id] })).status).toBe(400);
   });
 
   test("can be deleted with their messages, but not the last text channel", async () => {
     const b = app.store.createChannel({ name: "b", kind: "text" });
     app.store.addMessage({ channelId: b.id, author: "user", content: "bye" });
     expect((await call("DELETE", `/api/channels/${b.id}`, {})).status).toBe(200);
-    expect(app.store.listChannels().map((c) => c.name)).toEqual(["general", "planner"]);
+    expect(app.store.listChannels().map((c) => c.name)).toEqual(["general", "planner", "trackers"]);
     const last = await call("DELETE", `/api/channels/${general.id}`, {});
     expect(last.status).toBe(400);
     expect(last.data.error).toContain("at least one text channel");

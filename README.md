@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 4 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) and [stage 4](docs/stage-4.md) (reading your schedule from a screenshot).
+**Status: stage 5 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) and [stage 5](docs/stage-5.md) (trackers: data you define yourself).
 
 ## What it can do
 
@@ -13,6 +13,7 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
   - **Shifts** are regular (with draw hours), meetings, or on-call. Draw time is always calculated from the draw hours. The weekly list shows every shift with all its fields, day totals on double-booked days, and week totals.
   - **Import a screenshot** of your work schedule: a vision model reads the shifts, you check them in a review list beside the screenshot (⚠️ warnings point out likely misreads, but never stop you), and they're saved as confirmed shifts.
   - **Reminders**: each kind has defaults (a birthday: a week before and the morning of), changeable per plan. A reminder that would land during work moves to before it. (She'll send them from stage 8.)
+- **The 📈 trackers channel**: things for her to keep an eye out for (a headache, your meds, payday), each recording yes/no, a 1–10 scale, or a note, with your own hint words and whether she may bring it up. Log a **sticker** for a day in one tap; see the last two weeks at a glance; stickers also show on calendar days.
 - **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
@@ -95,6 +96,7 @@ src/
   dates.ts     Local dates and times, overnight ranges
   screenshot.ts  Reading shifts from a schedule screenshot, and checking them
   json.ts      Getting JSON out of a model's reply, forgivingly
+  trackers.ts  Trackers and log entries (stickers on days)
   prompt.ts    Builds the prompt stack sent to the model
   toolcalls.ts Reading tool calls, including broken or written-as-text ones (from Aettica)
   profiles.ts  Connection profiles and roulettes (from Aettica)

@@ -1,0 +1,12 @@
+<!--
+  Kitsikai's app icon: two overlapping speech bubbles with a small heart,
+  on the accent colour. The artwork stays inside the central 80% so it
+  survives being cropped to a circle or squircle by the phone's launcher
+  ("maskable" in the manifest).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#8b7cf6"/>
+  <path fill="#fff" opacity=".55" d="M214 118h170a30 30 0 0 1 30 30v100a30 30 0 0 1-30 30h-18v44l-50-44h-102a30 30 0 0 1-30-30V148a30 30 0 0 1 30-30Z"/>
+  <path fill="#fff" d="M128 190h170a30 30 0 0 1 30 30v104a30 30 0 0 1-30 30H196l-54 46v-46h-14a30 30 0 0 1-30-30V220a30 30 0 0 1 30-30Z"/>
+  <path fill="#8b7cf6" d="M213 318c-4 0-40-24-51-44-9-17 0-37 18-37 12 0 20 8 33 20 13-12 21-20 33-20 18 0 27 20 18 37-11 20-47 44-51 44Z"/>
+</svg>

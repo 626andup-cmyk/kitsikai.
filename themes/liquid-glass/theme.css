@@ -1,0 +1,476 @@
+/*
+ * Liquid Glass: clear, thick glass over soft iridescent colour. Its edges
+ * work like a lens: the grid and colours behind bend as they near the rim,
+ * and split into a faint rainbow there (real refraction, from
+ * public/glass.js, in Chrome and other Chromium browsers; elsewhere, and in
+ * Lite mode, a light blur stands in). Controls squish when pressed and
+ * spring back, the channel highlight flows between channels, and the
+ * typing dots merge and split like droplets.
+ *
+ * Sliders in Appearance (declared in theme.json) set:
+ *   --glass-tint   how white the glass is: 0 is perfectly clear
+ *   --refraction   how strongly the edges bend what's behind (px)
+ *   --dispersion   how much the colours split at the edges
+ *   --frost        a blur behind the glass (px)
+ *   --grid         how visible the grid is
+ *
+ * Lite version: theme-lite.css (no refraction or blur; whiter glass).
+ */
+
+:root {
+  color-scheme: light;
+
+  /* The sliders' defaults (the same as in theme.json). */
+  --glass-tint: 0.24;
+  --refraction: 26;
+  --dispersion: 0.4;
+  --frost: 0.5;
+  --grid: 1;
+
+  /* Real refraction (public/glass.js): on, with the sliders' settings. */
+  --lensing: on;
+  --lens-depth: var(--refraction);
+  --lens-bevel: 20;
+  --lens-dispersion: var(--dispersion);
+  --lens-frost: var(--frost);
+  --lens-saturate: 1.35;
+
+  /*
+   * The glass. The fill is almost clear; the look comes from light on its
+   * edges: a thin bright rim all round, a strong highlight on the top-left
+   * edge, a softer reflection on the bottom-right, a glow inside the bottom
+   * edge, and a soft shadow beneath, as if it floats.
+   */
+  --glass-fill: rgb(255 255 255 / var(--glass-tint));
+  --glass-rim:
+    inset 0 0 0 1px rgb(255 255 255 / 0.55),
+    inset 1.5px 2px 1px -1px rgb(255 255 255 / 0.95),
+    inset -1.5px -2px 1px -1px rgb(255 255 255 / 0.6),
+    inset 0 -12px 20px -14px rgb(255 255 255 / 0.85);
+  --glass-float: 0 1px 1px rgb(20 20 50 / 0.05), 0 14px 34px -12px rgb(30 30 80 / 0.3);
+  --glass-blur: blur(10px) saturate(160%);
+
+  --font-body: -apple-system, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-heading: -apple-system, "SF Pro Display", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-prose: "New York", Georgia, "Iowan Old Style", serif;
+
+  --text: #1d1d24;
+  --text-muted: rgb(40 40 60 / 0.6);
+  --text-strong: #000000;
+  --em-color: #5a3fd0;
+
+  --accent: #0a7cff;
+  --accent-hover: #3a95ff;
+  --accent-text: #ffffff;
+  --danger: rgb(255 59 48 / 0.85);
+  --danger-text: #ffffff;
+  --error-bg: rgb(255 59 48 / 0.14);
+  --error-text: #c4271c;
+  --update-bg: rgb(10 124 255 / 0.12);
+
+  --user-color: #d9480f;
+  --kitsikai-color: #5f3dc4;
+  --avatar-user-bg: linear-gradient(135deg, #ffb35c, #ff6b8b);
+  --avatar-kitsikai-bg: linear-gradient(135deg, #7ab8ff, #8f6bff);
+  --avatar-text: #ffffff;
+  --avatar-saturation: 72%;
+  --avatar-lightness: 58%;
+  --name-saturation: 70%;
+  --name-lightness: 38%;
+
+  --scene-break-line: rgb(30 30 60 / 0.18);
+  --scene-break-text: rgb(30 30 60 / 0.6);
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+
+  --app-background: #eceef4;
+  --channel-background: transparent;
+
+  --sidebar-bg: var(--glass-fill);
+  --sidebar-border: 0;
+  --sidebar-shadow: var(--glass-rim), var(--glass-float);
+  --sidebar-backdrop: var(--glass-blur);
+  --drawer-bg: rgb(246 247 251 / 0.9);
+  --sidebar-footer-bg: transparent;
+  --channel-link-color: rgb(30 30 50 / 0.75);
+  --channel-link-hover-bg: rgb(255 255 255 / 0.25);
+  --channel-link-active-bg: transparent;
+  --channel-link-active-color: #000000;
+
+  --header-bg: var(--glass-fill);
+  --header-border: 0;
+  --header-shadow: var(--glass-rim), var(--glass-float);
+  --header-backdrop: var(--glass-blur);
+  --message-hover-bg: transparent;
+  --composer-bg: var(--glass-fill);
+  --composer-border: 0;
+  --composer-backdrop: var(--glass-blur);
+
+  --input-bg: rgb(255 255 255 / 0.4);
+  --input-border: 1px solid rgb(255 255 255 / 0.7);
+  --input-focus-border: 1px solid rgb(10 124 255 / 0.55);
+  --button-bg: var(--glass-fill);
+  --button-hover-bg: rgb(255 255 255 / calc(var(--glass-tint) + 0.12));
+  --button-text: #1d1d24;
+  --button-border: 0;
+  --button-shadow: var(--glass-rim), 0 6px 14px -8px rgb(30 30 80 / 0.35);
+  --button-primary-bg: rgb(10 124 255 / 0.78);
+  --button-primary-hover-bg: rgb(10 124 255 / 0.9);
+  --button-primary-text: #ffffff;
+  --icon-button-hover-bg: rgb(255 255 255 / 0.3);
+
+  /* Dialogs hold a lot of text: whiter, and frosted. */
+  --dialog-bg: rgb(250 251 255 / calc(var(--glass-tint) + 0.5));
+  --dialog-border: 0;
+  --dialog-shadow: var(--glass-rim), 0 24px 60px -16px rgb(30 30 80 / 0.4);
+  --dialog-backdrop: blur(24px) saturate(160%);
+  --scrim: rgb(40 40 70 / 0.12);
+  --code-bg: rgb(0 0 20 / 0.06);
+}
+
+/* ---------------------------------------------------------- the backdrop */
+
+/*
+ * Behind everything, on the app's theme layers: soft colour, a grid, and a
+ * few vivid shapes. The glass bends them at its edges. The grid and shapes
+ * drift a little as you scroll the messages.
+ *
+ * The drift moves the layers' backgrounds, not the layers themselves:
+ * Chrome's refraction (an SVG backdrop filter) doesn't see a transformed
+ * layer properly, and cuts off part of it behind each bubble's rim.
+ */
+body {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  timeline-scope: --chat;
+}
+
+.theme-layers {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.theme-layers > * {
+  position: absolute;
+}
+
+.layer-1 {
+  inset: 0;
+  background: url(wash.svg) center / cover no-repeat, #eceef4;
+}
+
+.layer-2 {
+  inset: 0;
+  background: url(grid.svg) 0 0 / 96px 96px;
+  opacity: var(--grid);
+}
+
+.layer-3 {
+  inset: 0;
+  background: url(ribbons.svg) center / cover no-repeat;
+}
+
+.messages {
+  scroll-timeline: --chat block;
+}
+
+@supports (animation-timeline: scroll()) {
+  .layer-2,
+  .layer-3 {
+    animation: liquid-glass-drift linear both;
+    animation-timeline: --chat;
+  }
+}
+
+@keyframes liquid-glass-drift {
+  from {
+    background-position-y: calc(50% + 5vh);
+  }
+  to {
+    background-position-y: calc(50% - 5vh);
+  }
+}
+
+/* ------------------------------------------------------------- the glass */
+
+/* Everything made of glass. (`--lens: 1` asks glass.js to make it refract.) */
+.message,
+.surface,
+.button,
+.icon-button,
+.channel-indicator,
+.attach-chip,
+.message-comments {
+  --lens: 1;
+}
+
+/*
+ * A thin iridescent ring around the edge of each glass shape, where light
+ * splits: brightest at the top left, tinted cyan, pink and gold on the way
+ * round. (A gradient ring: the mask keeps only the border.)
+ */
+.message::after,
+.button::after,
+.channel-indicator::after,
+.surface::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 200deg,
+    rgb(255 255 255 / 0.95),
+    rgb(140 220 255 / 0.55) 15%,
+    rgb(255 255 255 / 0.1) 30%,
+    rgb(255 160 225 / 0.5) 48%,
+    rgb(255 255 255 / 0.85) 55%,
+    rgb(255 225 150 / 0.5) 70%,
+    rgb(255 255 255 / 0.15) 85%,
+    rgb(255 255 255 / 0.95)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+
+/* Dialogs hold a lot of text, so their glass is heavily frosted (the lens
+   uses this instead of --dialog-backdrop). */
+.dialog {
+  --lens-frost: 24;
+}
+
+/*
+ * While glass.js lenses an element it has the class `lensed`, and nothing
+ * may reach outside its box (Chrome versions disagree about where the lens
+ * goes when a shadow does). So lensed glass keeps only its rims; the soft
+ * shadows beneath stay for other browsers and Lite mode.
+ */
+.lensed {
+  box-shadow: var(--glass-rim) !important;
+}
+
+/* ------------------------------------------------------------ the bubbles */
+
+.messages {
+  padding: 12px 12px;
+}
+
+.message {
+  position: relative;
+  margin: 8px 0;
+  border-radius: 26px;
+  background: var(--glass-fill);
+  box-shadow: var(--glass-rim), var(--glass-float);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* Your messages are faintly tinted glass. */
+.message[data-author="user"] {
+  background: rgb(255 244 236 / calc(var(--glass-tint) + 0.08));
+}
+
+.message.continued {
+  margin-top: 3px;
+}
+
+/*
+ * Clear glass over vivid colour: a soft white glow behind the text keeps it
+ * readable wherever a ribbon passes, without frosting the glass.
+ */
+.message-content,
+.message-meta,
+.message-actions {
+  color: var(--text);
+  text-shadow:
+    0 0 1px rgb(255 255 255 / 0.9),
+    0 0 10px rgb(255 255 255 / 0.85);
+}
+
+/* ------------------------------------------------------------- the panels */
+
+/* Panels float away from the edges, with round ends. */
+.channel-header {
+  margin: 10px 10px 0;
+  border-radius: 999px;
+}
+
+.composer {
+  margin: 0 10px 10px;
+  border-radius: 30px;
+}
+
+@media (min-width: 800px) {
+  .app {
+    gap: 10px;
+    padding: 10px 0 10px 10px;
+  }
+
+  .sidebar {
+    border-radius: 30px;
+    overflow: hidden;
+  }
+}
+
+/* Round glass buttons, and capsules. */
+.button,
+.posting-as {
+  position: relative;
+  border-radius: 999px;
+}
+
+.button-primary {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.35),
+    inset 1.5px 2px 1px -1px rgb(255 255 255 / 0.8),
+    inset 0 -10px 18px -12px rgb(255 255 255 / 0.6),
+    0 8px 20px -8px rgb(10 124 255 / 0.6);
+}
+
+.button-danger {
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.icon-button {
+  position: relative;
+  border-radius: 50%;
+  background: var(--glass-fill);
+  box-shadow: var(--glass-rim), 0 6px 14px -8px rgb(30 30 80 / 0.35);
+}
+
+/* The glass pill behind the open channel, which flows between channels. */
+.channel-indicator {
+  display: block;
+  z-index: 0;
+  border-radius: 16px;
+  background: rgb(255 255 255 / calc(var(--glass-tint) + 0.14));
+  box-shadow: var(--glass-rim), 0 6px 16px -8px rgb(30 30 80 / 0.35);
+  transition: transform 0.55s cubic-bezier(0.3, 1.45, 0.5, 1);
+}
+
+.channel-indicator.stretching {
+  transition: transform 0.17s cubic-bezier(0.5, 0, 0.9, 0.6);
+}
+
+.channel-link {
+  position: relative;
+  z-index: 1;
+  border-radius: 16px;
+}
+
+/* ------------------------------------------------------------ liquid motion */
+
+/*
+ * Glass squishes when pressed and springs back past its size before
+ * settling (the curve overshoots), like a drop of liquid.
+ */
+.button,
+.icon-button,
+.channel-link,
+.message,
+.theme-card,
+.attach-chip {
+  transition:
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s,
+    box-shadow 0.2s;
+}
+
+.button:active,
+.icon-button:active,
+.attach-chip:active {
+  transform: scale(0.92);
+  transition-duration: 0.12s;
+}
+
+.channel-link:active,
+.theme-card:active {
+  transform: scale(0.96);
+  transition-duration: 0.12s;
+}
+
+.message:active {
+  transform: scale(0.992);
+  transition-duration: 0.2s;
+}
+
+/*
+ * The typing dots are droplets: they flow together and apart, merging as
+ * they touch (the "goo" filter from glass.js blends them).
+ */
+.typing-dots {
+  gap: 0;
+  padding: 2px 4px;
+  filter: url(#kitsikai-goo);
+}
+
+.typing-dots i {
+  width: 9px;
+  height: 9px;
+  margin: 0 1px;
+  background: var(--accent);
+  animation: liquid-glass-drop 1.6s ease-in-out infinite;
+}
+
+.typing-dots i:nth-child(1) {
+  --toward: 8px;
+}
+
+.typing-dots i:nth-child(2) {
+  --toward: 0px;
+  animation-name: liquid-glass-swell;
+}
+
+.typing-dots i:nth-child(3) {
+  --toward: -8px;
+}
+
+@keyframes liquid-glass-drop {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(var(--toward));
+  }
+}
+
+@keyframes liquid-glass-swell {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-layers > *,
+  .typing-dots i {
+    animation: none !important;
+  }
+
+  .channel-indicator {
+    transition: none;
+  }
+}
+
+/* Text needs no shadow on light glass, but small labels get a little help. */
+.channel-topic,
+.message-time,
+.message-model {
+  color: rgb(40 40 60 / 0.62);
+}

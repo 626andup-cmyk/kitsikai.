@@ -20,6 +20,7 @@ import { join, resolve } from "node:path";
 import { ToolLog } from "./activity.ts";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
+import { Memory } from "./memory.ts";
 import { Plans } from "./planner.ts";
 import { Profiles } from "./profiles.ts";
 import { Trackers } from "./trackers.ts";
@@ -32,6 +33,9 @@ const DEFAULTS_DIR = resolve(import.meta.dir, "..", "defaults");
 
 /** The model a brand-new server's first connection profile uses. */
 export const DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3.1-Terminus";
+
+/** Jev, pinned to a version (not jev-latest): upgrade on purpose. */
+export const DEFAULT_DECISION_MODEL = "typesafe/jev-1.13";
 
 // ------------------------------------------------------------- defaults
 
@@ -56,6 +60,13 @@ export function defaultSettings(): Settings {
     replyDebounceSeconds: 4,
     typingBaseMs: 600,
     typingPerCharMs: 40,
+    writerAssignment: "",
+    decisionModel: DEFAULT_DECISION_MODEL,
+    decisionFallback: "",
+    decisionConfidence: 0.8,
+    processingHours: 3,
+    pinCap: 10,
+    showAdvanced: false,
   };
 }
 
@@ -109,6 +120,30 @@ export function validateSettings(input: unknown): Partial<Settings> {
   if (raw.typingBaseMs !== undefined) clean.typingBaseMs = numberInRange(raw.typingBaseMs, "typingBaseMs", 0, 10_000, true);
   if (raw.typingPerCharMs !== undefined) {
     clean.typingPerCharMs = numberInRange(raw.typingPerCharMs, "typingPerCharMs", 0, 1000, true);
+  }
+  // Stage 7: her memory.
+  if (raw.writerAssignment !== undefined) clean.writerAssignment = assignment(raw.writerAssignment, "writerAssignment") ?? "";
+  if (raw.decisionModel !== undefined) {
+    if (typeof raw.decisionModel !== "string" || raw.decisionModel.trim().length > 200) {
+      throw new ValidationError("decisionModel must be a model id");
+    }
+    clean.decisionModel = raw.decisionModel.trim();
+  }
+  if (raw.decisionFallback !== undefined) {
+    const value = assignment(raw.decisionFallback, "decisionFallback") ?? "";
+    if (value.startsWith("roulette:")) throw new ValidationError("decisionFallback must be a profile, not a roulette");
+    clean.decisionFallback = value;
+  }
+  if (raw.decisionConfidence !== undefined) {
+    clean.decisionConfidence = numberInRange(raw.decisionConfidence, "decisionConfidence", 0.5, 0.99, false);
+  }
+  if (raw.processingHours !== undefined) {
+    clean.processingHours = numberInRange(raw.processingHours, "processingHours", 0.25, 48, false);
+  }
+  if (raw.pinCap !== undefined) clean.pinCap = numberInRange(raw.pinCap, "pinCap", 1, 50, true);
+  if (raw.showAdvanced !== undefined) {
+    if (typeof raw.showAdvanced !== "boolean") throw new ValidationError("showAdvanced must be true or false");
+    clean.showAdvanced = raw.showAdvanced;
   }
 
   return clean;
@@ -342,6 +377,8 @@ export class Store {
   readonly trackers: Trackers;
   /** Every tool call she makes (see `src/activity.ts`). */
   readonly toolLog: ToolLog;
+  /** Her scratchpad, pins and processing log (see `src/memory.ts`). */
+  readonly memory: Memory;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -363,6 +400,7 @@ export class Store {
     this.plans = new Plans(this.db);
     this.trackers = new Trackers(this.db);
     this.toolLog = new ToolLog(this.db);
+    this.memory = new Memory(this.db);
 
     if (isNew) this.seed();
   }
@@ -534,6 +572,22 @@ export class Store {
       )
       .all({ channelId, limit }) as MessageRow[];
     return rows.map(toMessage);
+  }
+
+  /**
+   * Messages in a channel saved after a given `seq` (the counter every
+   * message gets), oldest first, each with its seq. The scratchpad check
+   * uses it to read each of your messages once (src/scratchpad.ts).
+   */
+  messagesSince(channelId: string, seq: number, limit = 200): { message: Message; seq: number }[] {
+    // The newest `limit` of them, so a long history is never loaded whole.
+    const rows = this.db
+      .query(
+        `SELECT seq, ${MESSAGE_COLUMNS} FROM messages WHERE channel_id = $channelId AND seq > $seq
+          ORDER BY seq DESC LIMIT $limit`,
+      )
+      .all({ channelId, seq, limit }) as (MessageRow & { seq: number })[];
+    return rows.reverse().map((row) => ({ message: toMessage(row), seq: row.seq }));
   }
 
   /** One message. Throws `NotFoundError` if there's no such message. */

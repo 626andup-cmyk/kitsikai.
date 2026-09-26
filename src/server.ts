@@ -54,6 +54,10 @@
  *   PATCH  /api/log/:id                   Change a log entry's day or value
  *   DELETE /api/log/:id                   Delete a log entry
  *
+ *   GET    /api/memory                    Her notes, pins, drawer and processing log (the advanced page)
+ *   POST   /api/processing/run            Process her notes now ("Process now", for testing)
+ *   POST   /api/jev/test                  Ask Jev one tiny question, to see if it's reachable and understood
+ *
  *   GET    /api/messages/:id              One message (to show where a log entry came from)
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
@@ -84,9 +88,13 @@ import { readFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
 import { loadConfig, type Config } from "./config.ts";
 import { Events } from "./events.ts";
+import { Decider, testJev } from "./jev.ts";
 import { BusyError, Kitsikai, pickProfile, promptForChannel, testToolCalling, type TurnResult } from "./kitsikai.ts";
 import { ApiError, CancelledError, listModels, type ApiOptions } from "./nanogpt.ts";
+import { AlreadyProcessingError, Processing } from "./processing.ts";
 import { Replies } from "./replies.ts";
+import { Scheduler } from "./scheduler.ts";
+import { Scratchpad } from "./scratchpad.ts";
 import { daysBetween, isDate, mondayOf } from "./dates.ts";
 import { DEFAULT_REMINDERS, REMINDER_LABELS } from "./planner.ts";
 import { checkRows, IMAGE_TYPES, MAX_IMAGE_BASE64, readSchedule, rowsFromRequest, saveRows } from "./screenshot.ts";
@@ -99,6 +107,7 @@ import {
   validateSettings,
 } from "./store.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
+import type { Profile } from "./types.ts";
 
 /** Longest message you can send, in characters. A generous guard against accidents. */
 const MAX_MESSAGE_LENGTH = 100_000;
@@ -133,6 +142,14 @@ export interface App {
   /** Her waits before replying (src/replies.ts). */
   replies: Replies;
   themes: ThemeLibrary;
+  /** Asks Jev (src/jev.ts). */
+  decider: Decider;
+  /** Jev's check of your messages (src/scratchpad.ts). */
+  scratchpad: Scratchpad;
+  /** Processing her notes (src/processing.ts). */
+  processing: Processing;
+  /** What runs on a timer (src/scheduler.ts). Only the real server starts it. */
+  scheduler: Scheduler;
 }
 
 /**
@@ -208,7 +225,23 @@ export function createApp(config: Config, options: AppOptions = {}): App {
   };
   const events = new Events();
   const kitsikai = new Kitsikai(store, api, now, events);
-  const replies = new Replies(store, kitsikai, events);
+  // Stage 7: Jev, and what it decides.
+  const decider = new Decider(api, () => {
+    const settings = store.getSettings();
+    let fallback: Profile | null = null;
+    if (settings.decisionFallback.startsWith("profile:")) {
+      try {
+        fallback = store.profiles.get(settings.decisionFallback.slice("profile:".length));
+      } catch {
+        fallback = null; // deleted: no fallback
+      }
+    }
+    return { decisionModel: settings.decisionModel, fallback };
+  });
+  const scratchpad = new Scratchpad({ store, api, decider, events, clock: now });
+  const processing = new Processing({ store, api, decider, events, clock: now });
+  const scheduler = new Scheduler(store, processing, now);
+  const replies = new Replies(store, kitsikai, events, scratchpad);
   const version = appVersion(config.publicDir);
   const themes = new ThemeLibrary(
     config.themesDir,
@@ -275,6 +308,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         ensureTheme(update.appTheme);
         if (update.chatAssignment) store.profiles.checkAssignment(update.chatAssignment);
         if (update.screenshotAssignment) store.profiles.checkAssignment(update.screenshotAssignment);
+        if (update.writerAssignment) store.profiles.checkAssignment(update.writerAssignment);
+        if (update.decisionFallback) store.profiles.checkAssignment(update.decisionFallback);
         if (update.homeChannelId && store.getChannel(update.homeChannelId).kind !== "text") {
           throw new HttpError(400, "The home channel must be a text channel.");
         }
@@ -415,7 +450,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         store.getChannel(id!); // 404 for an unknown channel
         // Stop waiting to reply, too. `cancelled` is false if nothing was
         // running, e.g. the reply arrived just before you pressed Stop.
-        const waiting = replies.isWaiting(id!);
+        const waiting = replies.isWaiting(id!) || replies.isChecking(id!);
         replies.cancel(id!);
         return json({ cancelled: kitsikai.cancel(id!) || waiting });
       },
@@ -602,6 +637,39 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       },
     },
 
+    // -------------------------------------------------------- her memory
+    {
+      method: "GET",
+      pattern: "/api/memory",
+      handler: () => {
+        const settings = store.getSettings();
+        return json({
+          notes: store.memory.notes(["open", "asking", "bringup"]),
+          pins: store.memory.pins(),
+          drawer: store.memory.pins("drawer").slice(0, 50),
+          runs: store.memory.runs(30).map((run) => ({ ...run, log: store.memory.logForRun(run.id) })),
+          // What happened during chat (not in a processing round).
+          duringChat: store.memory
+            .recentLog(500)
+            .filter((entry) => entry.runId === null)
+            .slice(0, 100),
+          processing: { running: processing.isRunning(), nextRunAt: scheduler.nextRunAt().toISOString(), every: settings.processingHours },
+          jev: { model: settings.decisionModel, enabled: decider.enabled(), lastReport: decider.lastReport, checkError: scratchpad.lastError },
+          pinCap: settings.pinCap,
+        });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/processing/run",
+      handler: async () => json(await processing.run("manual")),
+    },
+    {
+      method: "POST",
+      pattern: "/api/jev/test",
+      handler: async () => json({ test: await testJev(decider) }),
+    },
+
     // ---------------------------------------------------------- messages
     {
       method: "GET",
@@ -762,14 +830,14 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
   }
 
-  return { fetch, store, kitsikai, events, replies, themes };
+  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler };
 }
 
 /** Turn a thrown error into the right JSON error response. */
 export function errorFor(error: unknown): Response {
   if (error instanceof HttpError) return errorResponse(error.status, error.message);
   if (error instanceof NotFoundError) return errorResponse(404, error.message);
-  if (error instanceof BusyError) return errorResponse(409, error.message);
+  if (error instanceof BusyError || error instanceof AlreadyProcessingError) return errorResponse(409, error.message);
   if (error instanceof ValidationError) return errorResponse(400, error.message);
   // A turn you stopped isn't an error: the request that started it just
   // learns that nothing was written.
@@ -892,6 +960,9 @@ function main(): void {
     // a slow generation. (Bun's limit is in seconds, 255 at most; 0 = never.)
     idleTimeout: 0,
   });
+
+  // Processing her notes every few hours (and, from stage 8, texting first).
+  app.scheduler.start();
 
   console.log(`Kitsikai is running at http://${server.hostname}:${server.port}`);
   console.log(`Saving your data in ${config.dataDir}`);

@@ -692,6 +692,10 @@ function handleEvent(event) {
       if (currentChannel()?.kind === "trackers") screens.trackers.reload();
       if (currentChannel()?.kind === "planner") screens.planner.reload();
       break;
+    case "memory":
+      // The advanced page, if it's open (public/memory.js).
+      if ($("notes-dialog").open) loadNotes();
+      break;
   }
 }
 
@@ -1678,6 +1682,16 @@ function openSettings() {
   form.replyDebounceSeconds.value = s.replyDebounceSeconds;
   form.typingBaseMs.value = s.typingBaseMs;
   form.typingPerCharMs.value = s.typingPerCharMs;
+  // Her memory (stage 7).
+  fillAssignmentSelect(form.writerAssignment, s.writerAssignment);
+  fillAssignmentSelect(form.decisionFallback, s.decisionFallback, "Nobody: skip that decision", true);
+  form.decisionModel.value = s.decisionModel;
+  form.decisionConfidence.value = s.decisionConfidence;
+  form.processingHours.value = s.processingHours;
+  form.pinCap.value = s.pinCap;
+  form.showAdvanced.checked = s.showAdvanced;
+  $("jev-test-result").hidden = true;
+  updateAdvanced();
   hideFormError(els.settingsForm);
   els.settingsDialog.showModal();
 }
@@ -1699,6 +1713,13 @@ async function saveSettings(event) {
       replyDebounceSeconds: Number(form.replyDebounceSeconds.value),
       typingBaseMs: Number(form.typingBaseMs.value),
       typingPerCharMs: Number(form.typingPerCharMs.value),
+      writerAssignment: form.writerAssignment.value,
+      decisionModel: form.decisionModel.value,
+      decisionFallback: form.decisionFallback.value,
+      decisionConfidence: Number(form.decisionConfidence.value),
+      processingHours: Number(form.processingHours.value),
+      pinCap: Number(form.pinCap.value),
+      showAdvanced: form.showAdvanced.checked,
     });
     state.settings = data.settings;
     els.settingsDialog.close();
@@ -1814,6 +1835,8 @@ async function refreshProfiles() {
     const form = els.settingsForm.elements;
     fillAssignmentSelect(form.chatAssignment, form.chatAssignment.value);
     fillAssignmentSelect(form.screenshotAssignment, form.screenshotAssignment.value, null, true);
+    fillAssignmentSelect(form.writerAssignment, form.writerAssignment.value);
+    fillAssignmentSelect(form.decisionFallback, form.decisionFallback.value, "Nobody: skip that decision", true);
   }
 }
 
@@ -1859,6 +1882,8 @@ function usesOf(value, index) {
   const jobs = [];
   if (state.settings.chatAssignment === value || (index === 0 && !state.settings.chatAssignment)) jobs.push("chat");
   if (state.settings.screenshotAssignment === value || (index === 0 && !state.settings.screenshotAssignment)) jobs.push("screenshots");
+  if (state.settings.writerAssignment === value || (index === 0 && !state.settings.writerAssignment)) jobs.push("notes");
+  if (state.settings.decisionFallback === value) jobs.push("Jev fallback");
   const channels = state.channels.filter((c) => c.assignment === value).map((c) => `#${c.name}`);
   return [...jobs, ...channels];
 }

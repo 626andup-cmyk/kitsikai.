@@ -1,0 +1,212 @@
+/**
+ * Tests for stage 7's Jev client (src/jev.ts): the request, reading answers
+ * in every layout it accepts, the three confidence tiers, the fallback
+ * profile, and Settings → "Test Jev".
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { confidentChoice, Decider, jevRequestBody, readAnswers, testJev, tier, type Answer, type Question } from "../src/jev.ts";
+import { ApiError } from "../src/nanogpt.ts";
+import type { Profile } from "../src/types.ts";
+import { startFakeNanoGpt, type FakeNanoGpt } from "./helpers.ts";
+
+const QUESTIONS: Question[] = [
+  { id: "q1", kind: "yesno", question: "Did they say they had a headache?" },
+  { id: "q2", kind: "choice", question: "Which day?", options: ["today", "yesterday"] },
+];
+
+const answer = (selected: string, yes: number): Answer => ({ id: "q", selected, probabilities: { yes, no: 1 - yes }, confidence: Math.max(yes, 1 - yes) });
+
+describe("the request", () => {
+  test("is chat completions with the state as the message and the questions as a response format", () => {
+    expect(jevRequestBody("typesafe/jev-1.13", "They said hi.", QUESTIONS)).toEqual({
+      model: "typesafe/jev-1.13",
+      messages: [{ role: "user", content: "They said hi." }],
+      response_format: {
+        type: "questions",
+        questions: [
+          { id: "q1", type: "choice", question: "Did they say they had a headache?", options: ["yes", "no"] },
+          { id: "q2", type: "choice", question: "Which day?", options: ["today", "yesterday"] },
+        ],
+      },
+      stream: false,
+    });
+  });
+});
+
+describe("reading answers", () => {
+  const content = (value: unknown) => ({ choices: [{ message: { content: JSON.stringify(value) } }] });
+
+  test("a list of answers in the message content", () => {
+    const answers = readAnswers(
+      content({ answers: [{ id: "q1", selected: "yes", probabilities: { yes: 0.9, no: 0.1 } }, { id: "q2", selected: "today", probabilities: { today: 0.7, yesterday: 0.3 } }] }),
+      QUESTIONS,
+    );
+    expect(answers.get("q1")).toEqual({ id: "q1", selected: "yes", probabilities: { yes: 0.9, no: 0.1 }, confidence: 0.9 });
+    expect(answers.get("q2")!.selected).toBe("today");
+  });
+
+  test("an object by id, parsed on the message, or at the top level", () => {
+    const byId = { q1: { answer: "no", probability: 0.8 } };
+    for (const json of [content(byId), { choices: [{ message: { parsed: byId } }] }, { answers: byId }, { results: byId }]) {
+      const answers = readAnswers(json, QUESTIONS);
+      expect(answers.get("q1")).toEqual({ id: "q1", selected: "no", probabilities: { no: 0.8, yes: expect.closeTo(0.2) }, confidence: 0.8 });
+    }
+  });
+
+  test("probabilities as a list, without a pick: the most likely option is picked", () => {
+    const answers = readAnswers(
+      { answers: [{ id: "q2", probabilities: [{ option: "today", probability: 0.2 }, { label: "Yesterday", p: 0.8 }] }] },
+      QUESTIONS,
+    );
+    expect(answers.get("q2")).toEqual({ id: "q2", selected: "yesterday", probabilities: { today: 0.2, yesterday: 0.8 }, confidence: 0.8 });
+  });
+
+  test("true/false picks, and answers without ids, in question order", () => {
+    const answers = readAnswers({ answers: [{ value: true }, { choice: "YESTERDAY" }] }, QUESTIONS);
+    expect(answers.get("q1")!.selected).toBe("yes");
+    expect(answers.get("q2")!.selected).toBe("yesterday");
+  });
+
+  test("answers that don't fit are dropped: unknown ids, picks that aren't options, nothing readable", () => {
+    const answers = readAnswers({ answers: [{ id: "q9", selected: "yes" }, { id: "q2", selected: "tomorrow" }, { id: "q1" }] }, QUESTIONS);
+    expect(answers.size).toBe(0);
+    expect(readAnswers(content("not answers"), QUESTIONS).size).toBe(0);
+    expect(readAnswers({ choices: [{ message: { content: "I think yes" } }] }, QUESTIONS).size).toBe(0);
+  });
+});
+
+describe("the three tiers", () => {
+  test("confident yes, confident no, or unsure, at the threshold", () => {
+    expect(tier(answer("yes", 0.8), 0.8)).toBe("yes");
+    expect(tier(answer("yes", 0.79), 0.8)).toBe("unsure");
+    expect(tier(answer("no", 0.21), 0.8)).toBe("unsure");
+    expect(tier(answer("no", 0.2), 0.8)).toBe("no");
+    expect(tier(answer("yes", 0.92), 0.95)).toBe("unsure");
+  });
+
+  test("no answer at all is unsure: the safe path", () => {
+    expect(tier(undefined, 0.8)).toBe("unsure");
+    expect(confidentChoice(undefined, 0.8)).toBeNull();
+  });
+
+  test("a choice counts only when its pick is confident", () => {
+    const pick = (p: number): Answer => ({ id: "q2", selected: "today", probabilities: { today: p, yesterday: 1 - p }, confidence: p });
+    expect(confidentChoice(pick(0.85), 0.8)).toBe("today");
+    expect(confidentChoice(pick(0.6), 0.8)).toBeNull();
+  });
+});
+
+describe("the decider", () => {
+  let fake: FakeNanoGpt;
+  let settings: { decisionModel: string; fallback: Profile | null };
+  let decider: Decider;
+  const fallback: Profile = {
+    id: "p1",
+    name: "Steady",
+    model: "steady/model",
+    temperature: 0.7,
+    maxTokens: 500,
+    topP: null,
+    reasoningEffort: null,
+    supportsTools: false,
+    quirkPrompt: "",
+    extraParams: "",
+    position: 0,
+    createdAt: "",
+  };
+
+  beforeEach(() => {
+    fake = startFakeNanoGpt();
+    settings = { decisionModel: "typesafe/jev-1.13", fallback: null };
+    decider = new Decider({ apiKey: "test-key", baseUrl: fake.baseUrl, timeoutMs: 5000 }, () => settings);
+  });
+  afterEach(() => fake.stop());
+
+  test("asks Jev, with the pinned model, and reads its answers", async () => {
+    fake.jevReplies.push({ q1: "yes", q2: { selected: "yesterday", p: 0.7 } });
+    const answers = await decider.ask("They said their head hurt yesterday.", QUESTIONS);
+    expect(fake.jevRequests[0]!.model).toBe("typesafe/jev-1.13");
+    expect(fake.jevRequests[0]!.state).toBe("They said their head hurt yesterday.");
+    expect(answers.get("q1")!.selected).toBe("yes");
+    expect(answers.get("q2")!.probabilities.yesterday).toBe(0.7);
+    expect(decider.lastReport).toMatchObject({ answeredBy: "jev", jevError: null });
+    expect(decider.lastReport!.raw).toContain("answers");
+  });
+
+  test("no questions: nothing is asked", async () => {
+    expect((await decider.ask("state", [])).size).toBe(0);
+    expect(fake.jevRequests).toHaveLength(0);
+  });
+
+  test("when Jev fails and there's no fallback, the error says why", async () => {
+    fake.jevReplies.push({ status: 503, error: "Model unavailable" });
+    const error = await decider.ask("state", QUESTIONS).catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.message).toContain("HTTP 503");
+    expect(decider.lastReport!.jevError).toContain("Model unavailable");
+  });
+
+  test("a reply with no answers Kitsikai can read counts as a failure", async () => {
+    // A 200 reply whose body has no answers in it: {"error": {"message": ""}}.
+    fake.jevReplies.push({ status: 200, error: "" });
+    const error = await decider.ask("state", QUESTIONS).catch((e) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.message).toContain("no answers in a shape Kitsikai understands");
+  });
+
+  test("when Jev fails, the fallback profile answers in JSON", async () => {
+    settings.fallback = fallback;
+    fake.jevReplies.push({ status: 503, error: "Model unavailable" });
+    fake.replies.push({ content: '```json\n{"q1": {"answer": "yes", "probability": 0.9}, "q2": {"answer": "today", "probability": 0.6}}\n```' });
+    const answers = await decider.ask("They have a headache today.", QUESTIONS);
+    expect(fake.requests[0]!.model).toBe("steady/model");
+    expect(fake.requests[0]!.messages[1]!.content).toContain('"q1": Did they say they had a headache? Options: "yes", "no"');
+    expect(answers.get("q1")).toMatchObject({ selected: "yes", confidence: 0.9 });
+    expect(tier(answers.get("q1"), 0.8)).toBe("yes");
+    expect(confidentChoice(answers.get("q2"), 0.8)).toBeNull();
+    expect(decider.lastReport).toMatchObject({ answeredBy: "fallback" });
+  });
+
+  test("with Jev turned off, the fallback answers straight away, or nothing can", async () => {
+    settings.decisionModel = "";
+    expect(decider.enabled()).toBe(false);
+    expect((await decider.ask("state", QUESTIONS).catch((e) => e)).message).toContain("Jev is turned off");
+    settings.fallback = fallback;
+    expect(decider.enabled()).toBe(true);
+    fake.replies.push({ content: '{"q1": {"answer": "no", "probability": 0.95}}' });
+    expect((await decider.ask("state", QUESTIONS)).get("q1")!.selected).toBe("no");
+    expect(fake.jevRequests).toHaveLength(0);
+  });
+});
+
+describe("Test Jev", () => {
+  let fake: FakeNanoGpt;
+  let decider: Decider;
+  beforeEach(() => {
+    fake = startFakeNanoGpt();
+    decider = new Decider({ apiKey: "test-key", baseUrl: fake.baseUrl, timeoutMs: 5000 }, () => ({ decisionModel: "typesafe/jev-1.13", fallback: null }));
+  });
+  afterEach(() => fake.stop());
+
+  test("a working Jev answers the obvious question", async () => {
+    fake.jevReplies.push({ pet: { selected: "yes", p: 0.97 } });
+    const result = await testJev(decider);
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe('Jev answered "yes", 97% sure, as expected. It\'s working.');
+    expect(result.report!.raw).toContain("answers");
+  });
+
+  test("a wrong answer, or an error, is explained", async () => {
+    fake.jevReplies.push({ pet: "no" });
+    const wrong = await testJev(decider);
+    expect(wrong.ok).toBe(false);
+    expect(wrong.detail).toContain('should have been "yes"');
+
+    fake.jevReplies.push({ status: 404, error: "No such model" });
+    const failed = await testJev(decider);
+    expect(failed.ok).toBe(false);
+    expect(failed.detail).toContain("HTTP 404");
+    expect(failed.answer).toBeNull();
+  });
+});

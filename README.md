@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 6 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself) and [stage 6](docs/stage-6.md) (tools: she looks things up).
+**Status: stage 7 of 8.** Channels where you text her, in bubbles, a 📅 planner for your shifts and plans, and a memory that notices what you tell her, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself), [stage 6](docs/stage-6.md) (tools: she looks things up) and [stage 7](docs/stage-7.md) (her memory: decision models, confidence and batch jobs).
 
 ## What it can do
 
@@ -16,10 +16,13 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **The 📈 trackers channel**: things for her to keep an eye out for (a headache, your meds, payday), each recording yes/no, a 1–10 scale, or a note, with your own hint words and whether she may bring it up. Log a **sticker** for a day in one tap; see the last two weeks at a glance; stickers also show on calendar days.
 - **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
 - **She knows your day**: today's and tomorrow's plans, and whether you're at work, are always in front of her. Anything further (next week's shifts, the headache log, another channel) she **looks up with tools** when it comes up, if her profile can use tools. What she looked up shows under her reply ("⚙ Kitsikai looked up plans for Oct 5–11"), and each channel has a **tool log**.
+- **Her memory**: a fast decision model, **Jev**, reads each of your messages against your trackers and for plans, things worth remembering, and requests ("pin that"). What it notices goes on her **scratchpad** in pencil; every few hours she **processes** it: what's clearly true goes into the log, what's wrong is tossed, and she asks about anything she's unsure of. A plan from chat only goes into the planner once you say yes. Correct her just by talking ("wait no, it's Friday").
+- **Pins**: what matters right now, always in her view, each with why and when to take it down, up to a cap. Unpinned things go into a drawer she can still look in. She can mention her notes when it feels natural ("noted 📌").
+- **The advanced page** (Settings → Advanced): her notes, pins, drawer and a processing log of what she kept, tossed and asked about, and why. Look, don't touch: everything changes through her.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots, how many recent messages she sees, how long she waits before replying, and how fast she "types".
+- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -93,7 +96,13 @@ src/
   replies.ts   Waiting a few seconds after your last bubble before she replies
   events.ts    The events stream: telling the app what happened, as it happens
   bubbles.ts   Splitting her replies into bubbles on <cht>
-  tools.ts     Her tools: looking things up in the binder
+  tools.ts     Her tools: looking things up in the binder, and jotting notes
+  jev.ts       Jev, the decision model: questions, answers, confidence tiers, the fallback
+  scratchpad.ts  Jev's check of your messages during chat: new notes, corrections, your yes
+  processing.ts  Processing her notes every few hours: pencil to pen, and her pins
+  scheduler.ts What runs on a timer (processing; from stage 8, texting first)
+  writer.ts    The processing writer: words for her notes, pins and plan cards
+  memory.ts    Her notes, pins and processing log in the database, and in her prompt
   binder.ts    Plans, work and stickers, in words (for the prompt and the tools)
   activity.ts  The tool log
   planner.ts   Plans: repeats, shift hours, draw time, work blocks, reminders, week totals

@@ -44,7 +44,9 @@ export type ServerEvent =
   /** Plans changed (the planner reloads what it shows). */
   | { type: "plans" }
   /** Trackers or log entries changed. */
-  | { type: "log" };
+  | { type: "log" }
+  /** Her notes, pins or processing log changed (stage 7: the advanced page reloads). */
+  | { type: "memory" };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

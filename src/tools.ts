@@ -5,6 +5,11 @@
  * (next week's shifts, the headache log from last month, what was said in
  * another channel) she looks up with a tool when it comes up.
  *
+ * Stage 7 adds two for her memory (src/memory.ts): `jot_note` puts a note on
+ * her scratchpad (in pencil, like everything Jev notices), and
+ * `look_in_drawer` finds pins she's taken down. Neither changes the binder:
+ * only processing does, and plans only after you say yes.
+ *
  * Each tool is a name, a description the model reads, a JSON schema for its
  * arguments, and a `run` function. `runTool` checks the arguments, runs it,
  * and returns:
@@ -24,6 +29,7 @@ import { NotFoundError, ValidationError } from "./errors.ts";
 import type { ToolSpec } from "./nanogpt.ts";
 import { PLAN_KINDS } from "./planner.ts";
 import { formatClock } from "./prompt.ts";
+import type { Events } from "./events.ts";
 import type { Store } from "./store.ts";
 import type { Channel, PlanKind } from "./types.ts";
 
@@ -32,6 +38,8 @@ export interface ToolContext {
   store: Store;
   channel: Channel;
   now: Date;
+  /** To tell the app her notes changed (stage 7). */
+  events?: Events;
 }
 
 /** What running a tool produced. */
@@ -243,6 +251,74 @@ const TOOLS: ToolDefinition[] = [
           ? messages.map((m) => ({ from: m.author === "user" ? "them" : "you", text: m.content, when: when(m.createdAt, ctx.now) }))
           : { note: `#${channel.name} is empty.` },
         summary: `read #${channel.name}`,
+      };
+    },
+  },
+  {
+    name: "jot_note",
+    description:
+      "Jot a note on your scratchpad: something you want to remember (\"they seemed stressed about the new manager, check in later\"), or that they asked you to pin something or let a pin go. It's in pencil: you'll process it later.",
+    parameters: object(
+      {
+        text: str("The note, short, in your words."),
+        kind: {
+          type: "string",
+          enum: ["remember", "pin", "let go"],
+          description: 'Optional: "pin" or "let go" when they asked you to pin something or take a pin down. Default "remember".',
+        },
+        soon: { type: "boolean", description: "Optional: true if it's about something in the next few hours." },
+      },
+      ["text"],
+    ),
+    run: ({ store, channel, now, events }, args) => {
+      const text = maybe(args, "text");
+      if (!text) throw new ToolError('"text" is required.');
+      if (text.length > 300) throw new ToolError("Keep the note under 300 characters.");
+      const kind = maybe(args, "kind") ?? "remember";
+      if (!["remember", "pin", "let go"].includes(kind)) throw new ToolError('"kind" must be "remember", "pin" or "let go".');
+      if (args.soon !== undefined && typeof args.soon !== "boolean") throw new ToolError('"soon" must be true or false.');
+      const request = kind === "pin" ? "pin" : kind === "let go" ? "unpin" : null;
+      const last = store.lastMessage(channel.id);
+      const note = store.memory.addNote(
+        {
+          kind: request ? "request" : "remember",
+          text,
+          origin: "jotted",
+          yours: request !== null,
+          timeSensitive: args.soon === true,
+          request,
+          channelId: channel.id,
+          messageId: last?.author === "user" ? last.id : null,
+        },
+        now,
+      );
+      store.memory.log(
+        { runId: null, action: "noted", text, reason: request ? `they asked you to ${kind === "pin" ? "pin it" : "let it go"}` : "you jotted it down", noteId: note.id, messageId: note.messageId },
+        now,
+      );
+      events?.publish({ type: "memory" });
+      return { result: { noted: text, note: "On your scratchpad. You'll process it later." }, summary: `jotted down "${text}"` };
+    },
+  },
+  {
+    name: "look_in_drawer",
+    description:
+      "Look in your drawer: things you pinned once and have since taken down. Unpinning isn't forgetting: use this when something old comes up.",
+    parameters: object({ query: str("Optional: a word to search for.") }),
+    run: ({ store }, args) => {
+      const query = maybe(args, "query");
+      const pins = store.memory.searchDrawer(query);
+      return {
+        result: pins.length
+          ? pins.map((p) => ({
+              pin: p.text,
+              why: p.reason,
+              pinned: dayName(dateOf(new Date(p.pinnedAt))),
+              taken_down: p.unpinnedAt ? dayName(dateOf(new Date(p.unpinnedAt))) : null,
+              because: p.unpinReason,
+            }))
+          : { note: query ? `Nothing in the drawer about "${query}".` : "The drawer is empty." },
+        summary: query ? `looked in the drawer for "${query}"` : "looked in the drawer",
       };
     },
   },

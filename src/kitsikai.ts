@@ -4,8 +4,8 @@
  * ## Tools (stage 6)
  *
  * If the turn's connection profile can use tools, the model is offered them
- * (src/tools.ts: looking things up in the binder), and a turn becomes a
- * small loop, as in Aettica:
+ * (src/tools.ts: looking things up in the binder, and from stage 7 jotting
+ * notes on her scratchpad), and a turn becomes a small loop, as in Aettica:
  *
  *   1. Ask the model. It replies with text, tool calls, or both.
  *   2. If it called tools, run each one, log it, and send the results back.
@@ -33,6 +33,7 @@
 
 import { todayAndTomorrow } from "./binder.ts";
 import { splitBubbles } from "./bubbles.ts";
+import { memoryForPrompt } from "./memory.ts";
 import type { Events } from "./events.ts";
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
 import { parseExtraParams } from "./profiles.ts";
@@ -132,6 +133,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     now,
     modelNotes: options.profile?.quirkPrompt,
     todayAndTomorrow: todayAndTomorrow(store, now),
+    memory: memoryForPrompt(store.memory, settings, now),
     tools: options.profile?.supportsTools ?? false,
   });
 }
@@ -231,7 +233,7 @@ export class Kitsikai {
         profile,
         now,
       });
-      const context: ToolContext = { store: this.store, channel, now };
+      const context: ToolContext = { store: this.store, channel, now, events: this.events };
       const tools = profile.supportsTools ? toolSpecs() : [];
       const turnId = crypto.randomUUID();
 

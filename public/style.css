@@ -141,6 +141,12 @@
   --sticker-yes-bg: #2f5b46;
   --sticker-no-bg: #5b3a3a;
   --highlight-bg: color-mix(in srgb, var(--accent) 25%, transparent); /* a message you jumped to */
+
+  /* Her memory: the advanced page (stage 7) */
+  --pin-accent: #e0a44a; /* the stripe on a pin */
+  --memory-saved-color: #6fcf97; /* "Saved", "They said yes" in the processing log */
+  --memory-ask-color: #e0c36b; /* "Will ask" */
+  --memory-tossed-color: var(--text-muted); /* "Tossed", "They said no" */
 }
 
 /* ================================================================= base */
@@ -2194,3 +2200,173 @@ button:disabled {
   transition: background 0.4s;
 }
 
+
+/* ================================================ her memory (stage 7) */
+
+.memory-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 599px) {
+  .memory-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Settings → Test Jev: what came back. */
+.jev-test-result {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  font-size: 14px;
+}
+
+.jev-test-result p {
+  margin: 0;
+}
+
+.jev-test-result.ok {
+  border-left: 3px solid var(--memory-saved-color);
+}
+
+.jev-test-result.failed {
+  border-left: 3px solid var(--error-text);
+}
+
+.jev-test-result summary {
+  margin-top: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.jev-test-result pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px / 1.5 var(--font-mono);
+}
+
+/* The advanced page: Kitsikai's notes. */
+.notes-page {
+  width: min(760px, 100vw - 24px);
+}
+
+.notes-status p {
+  margin: 2px 0;
+}
+
+.notes-actions {
+  margin-top: 4px;
+}
+
+.memory-list {
+  margin: 4px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-card {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  font-size: 14px;
+}
+
+.memory-card-text {
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.memory-card-fact {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.pin-card {
+  border-left: 3px solid var(--pin-accent);
+}
+
+.pin-card[data-status="drawer"] {
+  border-left-color: var(--text-muted);
+}
+
+.note-card[data-status="asking"] {
+  border-left: 3px solid var(--memory-ask-color);
+}
+
+.memory-empty {
+  margin: 4px 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.link-button.memory-source {
+  padding: 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.notes-drawer summary {
+  margin-top: 18px;
+  font: 600 15px var(--font-heading);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.memory-round {
+  margin-top: 10px;
+}
+
+.memory-round-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.memory-log {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.memory-log-line {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.memory-log-action {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.memory-log-line[data-action="committed"] .memory-log-action,
+.memory-log-line[data-action="confirmed"] .memory-log-action,
+.memory-log-line[data-action="pinned"] .memory-log-action {
+  color: var(--memory-saved-color);
+}
+
+.memory-log-line[data-action="asking"] .memory-log-action {
+  color: var(--memory-ask-color);
+}
+
+.memory-log-line[data-action="tossed"] .memory-log-action,
+.memory-log-line[data-action="declined"] .memory-log-action,
+.memory-log-line[data-action="kept"] .memory-log-action {
+  color: var(--memory-tossed-color);
+}
+
+.memory-log-line[data-action="error"] .memory-log-action {
+  color: var(--error-text);
+}
+
+.memory-log-reason {
+  color: var(--text-muted);
+}

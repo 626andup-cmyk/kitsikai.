@@ -29,7 +29,7 @@ import type { Profile, ReasoningEffort, Roulette } from "./types.ts";
  * The settings that hold a job's assignment. When a profile or roulette is
  * deleted, any of these pointing at it go back to "" (the first profile).
  */
-export const ASSIGNMENT_KEYS = ["chatAssignment", "screenshotAssignment"] as const;
+export const ASSIGNMENT_KEYS = ["chatAssignment", "screenshotAssignment", "writerAssignment", "decisionFallback"] as const;
 
 // ------------------------------------------------------------- validation
 

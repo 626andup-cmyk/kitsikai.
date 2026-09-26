@@ -250,6 +250,92 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX tool_calls_by_channel ON tool_calls (channel_id, created_at);
   `,
+
+  // ---------------------------------------------------------------- 6
+  // Stage 7: her memory. Sticky notes on her scratchpad (pencil), her pins,
+  // the processing rounds, and a log of what happened to each note and why.
+  // All of it changes only through her (and Jev), never by editing here.
+  `
+  CREATE TABLE notes (
+    id             TEXT PRIMARY KEY,
+    kind           TEXT NOT NULL CHECK (kind IN ('tracker', 'plan', 'remember', 'request')),
+    -- The note, in her words.
+    text           TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'open'
+                   CHECK (status IN ('open', 'asking', 'bringup', 'done', 'tossed')),
+    -- 'noticed': Jev noticed it in chat. 'jotted': she wrote it with a tool.
+    origin         TEXT NOT NULL CHECK (origin IN ('noticed', 'jotted')),
+    -- 1 for your requests ("pin that"), honored at processing.
+    yours          INTEGER NOT NULL DEFAULT 0,
+    -- 1 if it's about the next few hours: processed early.
+    time_sensitive INTEGER NOT NULL DEFAULT 0,
+    -- 1 once you've said yes to it.
+    confirmed      INTEGER NOT NULL DEFAULT 0,
+    -- Tracker notes: which tracker, the value and the day.
+    tracker_id     TEXT REFERENCES trackers (id) ON DELETE CASCADE,
+    value          TEXT,
+    date           TEXT,
+    -- Plan notes: the plan as drafted, as JSON.
+    plan_draft     TEXT,
+    -- Request notes: 'pin' or 'unpin'.
+    request        TEXT CHECK (request IN ('pin', 'unpin')),
+    -- Asking notes: what she's asking you.
+    ask            TEXT,
+    channel_id     TEXT REFERENCES channels (id) ON DELETE SET NULL,
+    message_id     TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    resolved_at    TEXT
+  );
+  CREATE INDEX notes_by_status ON notes (status, created_at);
+
+  CREATE TABLE pins (
+    id           TEXT PRIMARY KEY,
+    text         TEXT NOT NULL,
+    reason       TEXT NOT NULL DEFAULT '',
+    -- When to take it down: a condition in words, and/or a date.
+    unpin_when   TEXT NOT NULL DEFAULT '',
+    unpin_date   TEXT,
+    -- 'drawer': unpinned, but her tools can still find it.
+    status       TEXT NOT NULL DEFAULT 'pinned' CHECK (status IN ('pinned', 'drawer')),
+    yours        INTEGER NOT NULL DEFAULT 0,
+    note_id      TEXT REFERENCES notes (id) ON DELETE SET NULL,
+    pinned_at    TEXT NOT NULL,
+    unpinned_at  TEXT,
+    unpin_reason TEXT
+  );
+
+  CREATE TABLE processing_runs (
+    id          TEXT PRIMARY KEY,
+    -- 'timer': every few hours. 'early': a time-sensitive note. 'manual': "Process now".
+    trigger     TEXT NOT NULL CHECK (trigger IN ('timer', 'early', 'manual')),
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    error       TEXT
+  );
+
+  CREATE TABLE memory_log (
+    id         TEXT PRIMARY KEY,
+    -- The processing round, or NULL for something that happened during chat.
+    run_id     TEXT REFERENCES processing_runs (id) ON DELETE CASCADE,
+    action     TEXT NOT NULL CHECK (action IN ('noted', 'rewritten', 'committed', 'asking', 'bringup', 'pinned',
+                                               'unpinned', 'tossed', 'kept', 'confirmed', 'declined', 'done', 'error')),
+    text       TEXT NOT NULL,
+    reason     TEXT NOT NULL DEFAULT '',
+    note_id    TEXT REFERENCES notes (id) ON DELETE SET NULL,
+    pin_id     TEXT REFERENCES pins (id) ON DELETE SET NULL,
+    message_id TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX memory_log_by_time ON memory_log (created_at);
+
+  -- How far the scratchpad check has read in each channel (a message seq),
+  -- so each of your messages is checked once.
+  CREATE TABLE scratchpad_marks (
+    channel_id TEXT PRIMARY KEY REFERENCES channels (id) ON DELETE CASCADE,
+    seq        INTEGER NOT NULL
+  );
+  `,
 ];
 
 /**

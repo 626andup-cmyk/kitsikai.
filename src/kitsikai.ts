@@ -16,14 +16,23 @@
  * turns an add-on instead of a rewrite later.
  */
 
+import { splitBubbles } from "./bubbles.ts";
+import type { Events } from "./events.ts";
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
 import { parseExtraParams } from "./profiles.ts";
-import { buildPromptStack } from "./prompt.ts";
+import { buildPromptStack, stripTimeMarkers } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments } from "./toolcalls.ts";
 import type { Channel, ChatMessage, Message, Profile } from "./types.ts";
 
-/** What caused a turn. Used for the server log. */
+/**
+ * What caused a turn. Used for the server log.
+ *
+ * - `"user-message"`: you texted, and she waited a few seconds after your
+ *   last bubble (see src/replies.ts).
+ * - `"continue"`: the "Her turn" button, or "Try again".
+ * - `"regenerate"`: replacing her last reply.
+ */
 export type TurnTrigger = "user-message" | "continue" | "regenerate";
 
 /** Extra options for a turn. */
@@ -41,7 +50,7 @@ export interface TurnOptions {
 
 /** Everything one turn produced. */
 export interface TurnResult {
-  /** The new message(s). */
+  /** The new messages: one per bubble. */
   messages: Message[];
   /** The messages that were replaced (a regeneration that wrote something). */
   replaced: string[];
@@ -93,6 +102,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
   return buildPromptStack({
     settings,
     channel,
+    channels: store.listChannels(),
     messages,
     now: options.now ?? new Date(),
     modelNotes: options.profile?.quirkPrompt,
@@ -123,13 +133,21 @@ export class Kitsikai {
   private readonly writingIn = new Map<string, AbortController>();
 
   /**
-   * @param clock  What time it is. Tests pass a fake clock.
+   * @param clock   What time it is. Tests pass a fake clock.
+   * @param events  Where to announce new messages and busy channels, so the
+   *                app hears about replies it didn't ask for (see src/events.ts).
    */
   constructor(
     private readonly store: Store,
     private readonly api: ApiOptions,
     private readonly clock: () => Date = () => new Date(),
+    private readonly events?: Events,
   ) {}
+
+  /** Tell the app which channels she's writing in. */
+  private announceBusy(): void {
+    this.events?.publish({ type: "busy", channelIds: this.busyChannels() });
+  }
 
   /** Whether a turn is in progress in a channel. */
   isBusy(channelId: string): boolean {
@@ -157,6 +175,7 @@ export class Kitsikai {
     // Free the channel right away rather than waiting for the aborted
     // request to wind down.
     this.writingIn.delete(channelId);
+    this.announceBusy();
     console.log(`[kitsikai] turn stopped in channel ${channelId}`);
     return true;
   }
@@ -176,6 +195,7 @@ export class Kitsikai {
 
     const controller = new AbortController();
     this.writingIn.set(channelId, controller);
+    this.announceBusy();
     try {
       const profile = options.profileId ? this.store.profiles.get(options.profileId) : pickProfile(this.store, channel);
       const conversation = promptForChannel(this.store, channelId, {
@@ -196,25 +216,30 @@ export class Kitsikai {
       if (controller.signal.aborted) throw new CancelledError();
       console.log(`[kitsikai] turn finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 
-      const content = response.content.trim();
+      // One message per bubble (see src/bubbles.ts).
+      const bubbles = splitBubbles(stripTimeMarkers(response.content));
       const result: TurnResult = { messages: [], replaced: [] };
-      if (content === "") return result;
+      if (bubbles.length === 0) return result;
 
       // Swap old for new in one transaction: never both, never neither.
       result.messages = this.store.db.transaction(() => {
         for (const id of options.replacing ?? []) this.store.deleteMessage(id);
-        return this.store.addTurn([
-          { channelId, author: "kitsikai", content, model: response.model, profile: profile.name },
-        ]);
+        return this.store.addTurn(
+          bubbles.map((content) => ({ channelId, author: "kitsikai", content, model: response.model, profile: profile.name })),
+        );
       })();
       result.replaced = options.replacing ?? [];
+      this.events?.publish({ type: "messages", channelId, messages: result.messages, replacedIds: result.replaced });
       return result;
     } finally {
       // Always release the lock, even if generation failed. Otherwise one
       // network error would leave the channel "busy" forever. (Only if it's
       // still *this* turn's lock: after a Stop, a new turn may already have
       // started in the channel.)
-      if (this.writingIn.get(channelId) === controller) this.writingIn.delete(channelId);
+      if (this.writingIn.get(channelId) === controller) {
+        this.writingIn.delete(channelId);
+        this.announceBusy();
+      }
     }
   }
 }

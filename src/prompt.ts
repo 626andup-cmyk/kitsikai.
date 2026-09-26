@@ -9,15 +9,17 @@
  * The system message is made of labelled sections ("layers"), always in the
  * same order:
  *
- *   1. Who you are      fixed framing, then her persona (editable)
- *   2. How you text     how her messages should look
- *   3. Right now        the date and time on the phone
- *   4. Model notes      the connection profile's notes on this model
+ *   1. Who you are             fixed framing, then her persona (editable)
+ *   2. How you text            bubbles, split with <cht>
+ *   3. Where you're texting    this channel, its topic, and the others
+ *   4. Right now               the date and time on the phone
+ *   5. Model notes             the connection profile's notes on this model
  *
  * Later stages add more sections in between (channels, plans, her notes and
  * pins), but the shape stays the same.
  */
 
+import { BUBBLE_MARKER, joinBubbles } from "./bubbles.ts";
 import type { Channel, ChatMessage, Message, Settings } from "./types.ts";
 
 /**
@@ -27,8 +29,17 @@ import type { Channel, ChatMessage, Message, Settings } from "./types.ts";
  */
 export const FRAMING = `You are Kitsikai, the user's friend. You text each other through a small app that looks like a chat server you share. You are not an assistant and you never talk like one: you're a person with your own life, voice and opinions, texting a friend.`;
 
-/** How her messages should look. */
-export const TEXTING_STYLE = `Write only your next text message: no quotation marks around it, no name in front, no narration or stage directions, no preamble. Keep it the length of a real text.`;
+/**
+ * How her messages should look: short bubbles with `<cht>` between them
+ * (see src/bubbles.ts), and no made-up timestamps.
+ */
+export const TEXTING_STYLE = `Text the way people really text: a few short bubbles rather than one long message. Put ${BUBBLE_MARKER} between bubbles, like this:
+
+omg wait ${BUBBLE_MARKER} you actually said that to him?? ${BUBBLE_MARKER} legend
+
+One bubble is fine too, when that's all you'd send. Write only your texts: no quotation marks, no name in front, no narration or stage directions, no preamble.
+
+Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to show when time has passed. Never write them yourself.`;
 
 /**
  * Messages sent when she takes a turn without a new message from you.
@@ -58,6 +69,8 @@ export interface PromptInput {
   settings: Settings;
   /** The channel she's writing in. */
   channel: Channel;
+  /** Every channel, in sidebar order (for "Where you're texting"). */
+  channels?: Channel[];
   /** The channel's recent messages, oldest first (already cut to the history limit). */
   messages: Message[];
   /** The time on the phone right now. */
@@ -71,10 +84,11 @@ export interface PromptInput {
  *
  * @returns The messages to send to the chat completions API.
  */
-export function buildPromptStack({ settings, channel, messages, now, modelNotes }: PromptInput): ChatMessage[] {
+export function buildPromptStack({ settings, channel, channels, messages, now, modelNotes }: PromptInput): ChatMessage[] {
   const layers: Layer[] = [
     { title: "Who you are", content: joinNonEmpty([FRAMING, settings.persona, whoTheyAre(settings)]) },
     { title: "How you text", content: TEXTING_STYLE },
+    { title: "Where you're texting", content: describeChannels(channel, channels ?? [channel]) },
     { title: "Right now", content: describeNow(now) },
     { title: "Model notes", content: modelNotes },
   ];
@@ -89,8 +103,21 @@ export function buildPromptStack({ settings, channel, messages, now, modelNotes 
   if (!last || last.role !== "user") {
     history.push({ role: "user", content: last ? NUDGES.continue : NUDGES.opening });
   }
-  void channel; // the channel's name and topic join the prompt in stage 2
   return [system, ...history];
+}
+
+/**
+ * Where she is, like: You're in #work (topic: "venting about shifts").
+ * The other channels: #general, #gaming (topic: "games").
+ */
+export function describeChannels(channel: Channel, channels: Channel[]): string {
+  const describe = (c: Channel) => (c.topic ? `#${c.name} (topic: "${c.topic}")` : `#${c.name}`);
+  const others = channels.filter((c) => c.id !== channel.id && c.kind === "text");
+  const lines = [
+    `You're in ${describe(channel)}. The channels split up your conversations, but you're one person: you remember everything from all of them.`,
+  ];
+  if (others.length) lines.push(`The other channels: ${others.map(describe).join(", ")}.`);
+  return lines.join("\n");
 }
 
 /** "Their name is Sam." if you've set your name. */
@@ -126,21 +153,58 @@ export function renderLayers(layers: Layer[]): string {
 /**
  * Convert saved messages into API messages.
  *
- * Your messages become `user`, hers become `assistant`. Two messages in a row
- * from the same author are merged into one, because some models reject two
- * `user` messages in a row, and merging never loses anything.
+ * Your messages become `user`, hers become `assistant`. A run of bubbles from
+ * the same person becomes one API message with `<cht>` between the bubbles,
+ * which is the format she's asked to write in. (Some models also reject two
+ * `user` messages in a row, so merging is needed anyway.)
+ *
+ * When an hour or more passes between two messages, the later one starts
+ * with a note like `[9:12 PM, 3 hours later]`, so she can tell a
+ * conversation from this morning from one that's still going.
  */
 export function toChatHistory(messages: Message[]): ChatMessage[] {
   const history: ChatMessage[] = [];
+  let previousTime: Date | null = null;
   for (const message of messages) {
-    const content = message.content.trim();
+    let content = message.content.trim();
     if (content === "") continue;
+    const time = new Date(message.createdAt);
+    const marker = previousTime ? timeMarker(previousTime, time) : "";
+    previousTime = time;
+    if (marker) content = `${marker} ${content}`;
+
     const role = message.author === "user" ? "user" : "assistant";
     const previous = history.at(-1);
-    if (previous && previous.role === role) previous.content += `\n\n${content}`;
+    if (previous && previous.role === role) previous.content = joinBubbles([previous.content, content]);
     else history.push({ role, content });
   }
   return history;
+}
+
+/** How long a gap has to be (in minutes) to get a time note. */
+const GAP_MINUTES = 60;
+
+/**
+ * The note for a gap between two messages, or "" for a short one:
+ * "[9:12 PM, 3 hours later]", or with the day when it changed:
+ * "[Sun 9:12 AM, 2 days later]".
+ */
+export function timeMarker(before: Date, after: Date): string {
+  const minutes = (after.getTime() - before.getTime()) / 60_000;
+  if (minutes < GAP_MINUTES) return "";
+  const hours = Math.round(minutes / 60);
+  const days = Math.round(minutes / (60 * 24));
+  const gap = hours < 36 ? `${hours} hour${hours === 1 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"}`;
+  const day = after.toDateString() === before.toDateString() ? "" : `${after.toLocaleDateString("en-US", { weekday: "short" })} `;
+  return `[${day}${formatClock(after)}, ${gap} later]`;
+}
+
+/** Time notes the model copied into its reply by mistake, to take out again. */
+const COPIED_MARKER = /\[(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) )?\d{1,2}:\d{2}\s?[AP]M, [^\]\n]{1,20} later\]\s*/g;
+
+/** Remove time notes from her reply (she's told not to write them, but models copy patterns). */
+export function stripTimeMarkers(text: string): string {
+  return text.replace(COPIED_MARKER, "");
 }
 
 export function joinNonEmpty(parts: (string | null | undefined)[]): string {

@@ -2,15 +2,17 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 1 of 8.** One channel where you text her, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects).
+**Status: stage 2 of 8.** Channels where you text her, in bubbles, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects) and [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying).
 
 ## What it can do
 
-- **Text her** in `#general`. Enter sends; Shift+Enter makes a new line.
+- **Text her like texting**: each send is its own bubble (Enter sends; Shift+Enter makes a new line). She waits a few seconds after your last bubble before replying, so she doesn't answer halfway through your thought.
+- **She texts in bubbles** that appear one at a time with a typing indicator. **Double-tap the typing indicator** to skip ahead.
+- **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), and how many recent messages she sees.
+- **Settings**: her name, your name, her persona (who she is), how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -81,6 +83,9 @@ Project layout:
 src/
   server.ts    HTTP server: API routes and serving the web app
   kitsikai.ts  The one "Kitsikai takes a turn" function, and the tool test
+  replies.ts   Waiting a few seconds after your last bubble before she replies
+  events.ts    The events stream: telling the app what happened, as it happens
+  bubbles.ts   Splitting her replies into bubbles on <cht>
   prompt.ts    Builds the prompt stack sent to the model
   toolcalls.ts Reading tool calls, including broken or written-as-text ones (from Aettica)
   profiles.ts  Connection profiles and roulettes (from Aettica)

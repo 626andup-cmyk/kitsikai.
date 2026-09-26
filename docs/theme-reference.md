@@ -93,14 +93,14 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.surface` | Any panel a glass theme might blur: sidebar, channel header, composer, dialogs |
 | `.sidebar`, `.sidebar-header`, `.sidebar-footer`, `.sidebar-scrim` | The sidebar and its parts |
 | `.server-name` | Her name at the top of the sidebar |
-| `.channel-list`, `.channel-link`, `.channel-link-name`, `.channel-icon`, `.channel-busy` | The channel list. The open channel's link has `aria-current="page"`; each link has `data-kind`. |
+| `.channel-list`, `.channel-link`, `.channel-link-name`, `.channel-icon`, `.channel-busy`, `.channel-unread` | The channel list. The open channel's link has `aria-current="page"`; each link has `data-kind`, the home channel's has `data-home="true"`, and a channel with messages you haven't seen gets `.unread` and a `.channel-unread` dot. |
 | `.kitsikai-card`, `.kitsikai-card-name`, `.kitsikai-card-role` | Her card at the bottom of the sidebar |
 | `.channel-view` | The open channel. Has `data-channel-id` and `data-channel-kind`. |
 | `.channel-header`, `.channel-title`, `.channel-topic` | The bar at the top of the channel |
 | `.messages` | The scrolling message list |
 | `.message` | One bubble. Has `data-author="user"` or `"kitsikai"`. Also `.pending` while being sent, `.continued` when grouped under the bubble before it, and `.selected` when tapped. |
 | `.avatar`, `.message-meta`, `.message-author`, `.message-time`, `.message-model`, `.message-content`, `.message-actions` | Parts of a message |
-| `.composer`, `.composer-input`, `.composer-buttons`, `.status`, `.typing-dots`, `.stop-button`, `.error-banner` | The composer area |
+| `.composer`, `.composer-input`, `.composer-buttons`, `.status`, `.typing-dots`, `.stop-button`, `.error-banner` | The composer area. `.status` is the typing indicator; it gets `.revealing` while her bubbles are appearing one by one (double-tap it to skip). |
 | `.update-banner` | "Kitsikai has been updated", at the top of the channel |
 | `.notice-banner` | Short notices at the top of the channel, e.g. about glass effects |
 | `.button`, `.button-primary`, `.button-danger`, `.icon-button`, `.link-button` | Buttons |

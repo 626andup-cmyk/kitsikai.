@@ -89,6 +89,9 @@
       <nav class="sidebar surface" id="sidebar" aria-label="Channels">
         <header class="sidebar-header">
           <h1 class="server-name" id="server-name">Kitsikai</h1>
+          <button id="new-channel-button" class="icon-button" type="button" aria-label="New channel" title="New channel">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-plus" /></svg>
+          </button>
         </header>
 
         <!-- Filled in by app.js: one <li> per channel. -->
@@ -156,7 +159,10 @@
         </main>
 
         <footer class="composer surface" id="composer">
-          <!-- Shown while she's writing in this channel. -->
+          <!--
+            Shown while she's writing in this channel, and while her bubbles
+            are appearing one by one. Double-tap it to skip ahead.
+          -->
           <div id="status" class="status" hidden>
             <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
             <span id="status-text">Kitsikai is typing…</span>
@@ -219,6 +225,25 @@
         <input id="setting-history" name="historyLimit" type="number" min="1" max="1000" step="1" />
         <p class="hint">How many recent messages in a channel she can see.</p>
 
+        <h3 class="section-title">Timing</h3>
+        <label for="setting-debounce">Wait before replying (seconds)</label>
+        <input id="setting-debounce" name="replyDebounceSeconds" type="number" min="0" max="120" step="any" />
+        <p class="hint">
+          She waits this long after your last bubble, so she doesn't answer halfway through your thought. Typing
+          makes her wait a little longer.
+        </p>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setting-typing-base">Typing: each bubble (ms)</label>
+            <input id="setting-typing-base" name="typingBaseMs" type="number" min="0" max="10000" step="1" />
+          </div>
+          <div>
+            <label for="setting-typing-char">Typing: per character (ms)</label>
+            <input id="setting-typing-char" name="typingPerCharMs" type="number" min="0" max="1000" step="1" />
+          </div>
+        </div>
+        <p class="hint">How long each of her bubbles takes to appear after the one before. Double-tap the typing dots to skip.</p>
+
         <p class="form-error" role="alert" hidden></p>
 
         <div class="dialog-buttons">
@@ -237,6 +262,19 @@
         <label for="channel-setting-name">Channel name</label>
         <input id="channel-setting-name" name="name" autocomplete="off" />
 
+        <label for="channel-setting-topic">Topic</label>
+        <input id="channel-setting-topic" name="topic" autocomplete="off" placeholder="e.g. work stuff, venting about shifts" />
+        <p class="hint">What this channel is for. She sees it, and uses it to decide where to text you.</p>
+
+        <label class="check-option" id="channel-home-row">
+          <input type="checkbox" name="home" />
+          <span
+            ><strong>Home channel</strong><br /><span class="hint"
+              >Where she texts you when nothing fits better. Without one, it's the first text channel.</span
+            ></span
+          >
+        </label>
+
         <label for="channel-setting-assignment">Written by</label>
         <p class="hint">The connection profile or roulette that writes her messages here.</p>
         <select id="channel-setting-assignment" name="assignment"></select>
@@ -248,6 +286,8 @@
         <p class="form-error" role="alert" hidden></p>
 
         <div class="dialog-buttons">
+          <button type="button" class="button" id="channel-move-up" title="Move up in the sidebar">↑</button>
+          <button type="button" class="button" id="channel-move-down" title="Move down in the sidebar">↓</button>
           <button type="button" class="button" id="preview-prompt">Preview prompt</button>
           <span class="spacer"></span>
           <button type="button" class="button" data-close>Cancel</button>
@@ -258,8 +298,31 @@
           <summary>Danger zone</summary>
           <div class="danger-buttons">
             <button id="clear-channel" type="button" class="button button-danger">Delete every message</button>
+            <button id="delete-channel" type="button" class="button button-danger">Delete channel</button>
           </div>
         </details>
+      </form>
+    </dialog>
+
+    <!-- Creating a channel. -->
+    <dialog id="new-channel-dialog" class="dialog surface">
+      <form id="new-channel-form" method="dialog">
+        <h2 class="dialog-title">New channel</h2>
+
+        <label for="new-channel-name">Channel name</label>
+        <input id="new-channel-name" name="name" autocomplete="off" placeholder="e.g. gaming" />
+
+        <label for="new-channel-topic">Topic</label>
+        <input id="new-channel-topic" name="topic" autocomplete="off" placeholder="optional, e.g. games and streams" />
+        <p class="hint">Channels split up your conversations, but not her: she remembers everything from all of them.</p>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Create</button>
+        </div>
       </form>
     </dialog>
 

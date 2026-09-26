@@ -15,12 +15,17 @@
  *
  *   GET    /api/state                     Settings, channels, profiles, roulettes, where she's writing,
  *                                         and the app version
+ *   GET    /api/events                    A stream of what happens, as it happens (see src/events.ts)
  *   PUT    /api/settings                  Change settings (any subset of fields)
  *   GET    /api/models                    List models available on nanoGPT
  *
- *   PATCH  /api/channels/:id              Rename a channel, or change its theme or profile
+ *   POST   /api/channels                  Create a channel
+ *   PUT    /api/channels/order            Put the channels in a new order
+ *   PATCH  /api/channels/:id              Rename a channel, or change its topic, theme or profile
+ *   DELETE /api/channels/:id              Delete a channel and all its messages
  *   GET    /api/channels/:id/messages     Every message in a channel
- *   POST   /api/channels/:id/messages     Send your message; she replies
+ *   POST   /api/channels/:id/messages     Send one bubble; she replies after a short wait (src/replies.ts)
+ *   POST   /api/channels/:id/typing       You're still typing: she waits a little longer
  *   DELETE /api/channels/:id/messages     Delete every message in a channel
  *   POST   /api/channels/:id/turn         She takes a turn without a new message from you
  *   POST   /api/channels/:id/regenerate   Replace her last reply with a new one (optionally with a given profile)
@@ -55,9 +60,18 @@
 import { readFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
 import { loadConfig, type Config } from "./config.ts";
+import { Events } from "./events.ts";
 import { BusyError, Kitsikai, pickProfile, promptForChannel, testToolCalling, type TurnResult } from "./kitsikai.ts";
 import { ApiError, CancelledError, listModels, type ApiOptions } from "./nanogpt.ts";
-import { NotFoundError, Store, ValidationError, validateChannelUpdate, validateSettings } from "./store.ts";
+import { Replies } from "./replies.ts";
+import {
+  NotFoundError,
+  Store,
+  ValidationError,
+  validateChannelUpdate,
+  validateNewChannel,
+  validateSettings,
+} from "./store.ts";
 import { DEFAULT_THEME, ThemeLibrary } from "./themes.ts";
 
 /** Longest message you can send, in characters. A generous guard against accidents. */
@@ -88,6 +102,10 @@ export interface App {
   fetch: (request: Request) => Promise<Response>;
   store: Store;
   kitsikai: Kitsikai;
+  /** What the app hears about as it happens (src/events.ts). */
+  events: Events;
+  /** Her waits before replying (src/replies.ts). */
+  replies: Replies;
   themes: ThemeLibrary;
 }
 
@@ -162,7 +180,9 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     baseUrl: config.apiBaseUrl,
     timeoutMs: config.requestTimeoutMs,
   };
-  const kitsikai = new Kitsikai(store, api, now);
+  const events = new Events();
+  const kitsikai = new Kitsikai(store, api, now, events);
+  const replies = new Replies(store, kitsikai, events);
   const version = appVersion(config.publicDir);
   const themes = new ThemeLibrary(
     config.themesDir,
@@ -178,6 +198,23 @@ export function createApp(config: Config, options: AppOptions = {}): App {
   /** Refuse to change a channel's messages while she's writing there. */
   function ensureIdle(channelId: string): void {
     if (kitsikai.isBusy(channelId)) throw new BusyError();
+  }
+
+  /** Tell every open app that the channel list changed, and return it. */
+  function channelsChanged() {
+    const channels = store.listChannels();
+    events.publish({ type: "channels", channels });
+    return channels;
+  }
+
+  /**
+   * The turn id for a bubble you're sending: the same as your previous
+   * bubble's if she hasn't replied since, so bubbles sent together form
+   * one turn.
+   */
+  function userTurnId(channelId: string): string {
+    const last = store.lastMessage(channelId);
+    return last?.author === "user" && last.turnId ? last.turnId : crypto.randomUUID();
   }
 
   // Routes are checked in order and the first match wins, so fixed paths
@@ -198,12 +235,20 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         }),
     },
     {
+      method: "GET",
+      pattern: "/api/events",
+      handler: (request) => events.response(request.signal),
+    },
+    {
       method: "PUT",
       pattern: "/api/settings",
       handler: async (request) => {
         const update = validateSettings(await readJson(request));
         ensureTheme(update.appTheme);
         if (update.chatAssignment) store.profiles.checkAssignment(update.chatAssignment);
+        if (update.homeChannelId && store.getChannel(update.homeChannelId).kind !== "text") {
+          throw new HttpError(400, "The home channel must be a text channel.");
+        }
         return json({ settings: store.updateSettings(update) });
       },
     },
@@ -215,13 +260,46 @@ export function createApp(config: Config, options: AppOptions = {}): App {
 
     // ---------------------------------------------------------- channels
     {
+      method: "POST",
+      pattern: "/api/channels",
+      handler: async (request) => {
+        const channel = store.createChannel(validateNewChannel(await readJson(request)));
+        return json({ channel, channels: channelsChanged() });
+      },
+    },
+    {
+      method: "PUT",
+      pattern: "/api/channels/order",
+      handler: async (request) => {
+        const body = (await readJson(request)) as { ids?: unknown };
+        if (!Array.isArray(body?.ids) || !body.ids.every((id) => typeof id === "string")) {
+          throw new HttpError(400, '"ids" must be a list of channel ids.');
+        }
+        store.reorderChannels(body.ids);
+        return json({ channels: channelsChanged() });
+      },
+    },
+    {
       method: "PATCH",
       pattern: "/api/channels/:id",
       handler: async (request, { id }) => {
         const update = validateChannelUpdate(await readJson(request));
         ensureTheme(update.theme);
         if (update.assignment) store.profiles.checkAssignment(update.assignment);
-        return json({ channel: store.updateChannel(id!, update) });
+        const channel = store.updateChannel(id!, update);
+        return json({ channel, channels: channelsChanged() });
+      },
+    },
+    {
+      method: "DELETE",
+      pattern: "/api/channels/:id",
+      handler: (_request, { id }) => {
+        store.getChannel(id!); // 404 for an unknown channel
+        // Nothing may be written into a channel that's gone.
+        replies.cancel(id!);
+        kitsikai.cancel(id!);
+        store.deleteChannel(id!);
+        return json({ settings: store.getSettings(), channels: channelsChanged() });
       },
     },
     {
@@ -234,15 +312,24 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       pattern: "/api/channels/:id/messages",
       handler: async (request, { id }) => {
         const content = requireText(await readJson(request), "content");
+        if (store.getChannel(id!).kind !== "text") throw new HttpError(400, "You can only text in text channels.");
+        // Each send is one bubble. Bubbles you send before she replies share
+        // a turn id.
+        const message = store.addMessage({ channelId: id!, author: "user", content: content.trim(), turnId: userTurnId(id!) });
+        events.publish({ type: "messages", channelId: id!, messages: [message] });
+        // She replies after a short wait, through the events stream. If a
+        // reply of hers was on its way, it's out of date now: she starts over.
+        replies.bubbleSent(id!);
+        return json({ userMessages: [message] });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/channels/:id/typing",
+      handler: (_request, { id }) => {
         store.getChannel(id!); // 404 for an unknown channel
-        // Refuse *before* saving, so a message sent while she's busy isn't
-        // saved without a reply attached.
-        ensureIdle(id!);
-        const userMessage = store.addMessage({ channelId: id!, author: "user", content: content.trim() });
-        // The reply is attempted separately: if it fails, your message is
-        // still saved and the app offers to retry with "Her turn".
-        const reply = await tryTurn(() => kitsikai.takeTurn(id!, "user-message"));
-        return json({ userMessages: [userMessage], ...reply });
+        replies.typing(id!);
+        return json({ waiting: replies.isWaiting(id!) });
       },
     },
     {
@@ -250,7 +337,10 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       pattern: "/api/channels/:id/messages",
       handler: (_request, { id }) => {
         ensureIdle(id!);
+        replies.cancel(id!);
+        const ids = store.getMessages(id!).map((m) => m.id);
         store.clearMessages(id!);
+        events.publish({ type: "deleted", channelId: id!, ids });
         return json({ ok: true });
       },
     },
@@ -284,9 +374,11 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       pattern: "/api/channels/:id/cancel",
       handler: (_request, { id }) => {
         store.getChannel(id!); // 404 for an unknown channel
-        // `cancelled` is false if nothing was running, e.g. the reply
-        // arrived just before you pressed Stop.
-        return json({ cancelled: kitsikai.cancel(id!) });
+        // Stop waiting to reply, too. `cancelled` is false if nothing was
+        // running, e.g. the reply arrived just before you pressed Stop.
+        const waiting = replies.isWaiting(id!);
+        replies.cancel(id!);
+        return json({ cancelled: kitsikai.cancel(id!) || waiting });
       },
     },
     {
@@ -313,8 +405,10 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       method: "DELETE",
       pattern: "/api/messages/:id",
       handler: (_request, { id }) => {
-        ensureIdle(store.getMessage(id!).channelId);
+        const { channelId } = store.getMessage(id!);
+        ensureIdle(channelId);
         store.deleteMessage(id!);
+        events.publish({ type: "deleted", channelId, ids: [id!] });
         return json({ ok: true });
       },
     },
@@ -340,7 +434,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       pattern: "/api/profiles/:id",
       handler: (_request, { id }) => {
         store.profiles.delete(id!);
-        return json({ settings: store.getSettings(), channels: store.listChannels() });
+        return json({ settings: store.getSettings(), channels: channelsChanged() });
       },
     },
     {
@@ -364,7 +458,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       pattern: "/api/roulettes/:id",
       handler: (_request, { id }) => {
         store.profiles.deleteRoulette(id!);
-        return json({ settings: store.getSettings(), channels: store.listChannels() });
+        return json({ settings: store.getSettings(), channels: channelsChanged() });
       },
     },
 
@@ -455,7 +549,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
   }
 
-  return { fetch, store, kitsikai, themes };
+  return { fetch, store, kitsikai, events, replies, themes };
 }
 
 /** Turn a thrown error into the right JSON error response. */
@@ -472,23 +566,6 @@ export function errorFor(error: unknown): Response {
   // debugging, and send a general message.
   console.error("[server] unexpected error", error);
   return errorResponse(500, "Something went wrong on the server.");
-}
-
-/**
- * Run a turn, but report failure as data instead of throwing. Used after
- * sending a message, where the message itself has already been saved
- * successfully and only the reply failed.
- */
-async function tryTurn(
-  turn: () => Promise<TurnResult>,
-): Promise<Partial<ReturnType<typeof turnResult>> & { error?: string; cancelled?: true }> {
-  try {
-    return turnResult(await turn());
-  } catch (error) {
-    if (error instanceof CancelledError) return { cancelled: true };
-    if (error instanceof ApiError || error instanceof BusyError) return { error: error.message };
-    throw error;
-  }
 }
 
 /** A turn's result, as the app receives it. */

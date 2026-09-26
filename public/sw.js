@@ -20,6 +20,10 @@ self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim(
 
 // Having a fetch handler is part of what makes the app installable. It does
 // nothing special: fetch from the network, as if there were no worker.
+// The events stream (stage 2) is left to the browser entirely: it's a
+// response that never ends, and passing it through here would only get in
+// the way.
 self.addEventListener("fetch", (event) => {
+  if (new URL(event.request.url).pathname === "/api/events") return;
   event.respondWith(fetch(event.request));
 });

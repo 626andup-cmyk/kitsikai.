@@ -97,7 +97,7 @@ Still inside Debian (the `root@localhost` prompt):
    Time zone: America/Chicago (it's 4:12 PM here)
    ```
 
-   **Check that time.** If it isn't the time on your phone, Debian is using the wrong time zone (it often starts on UTC), and your plans would be hours off. To fix it: press **Ctrl+C** to stop the server, run `nano .env`, add a line with your time zone, like `TZ=America/Chicago` (it's a region and a city: `Europe/London`, `Asia/Manila`...), save, and run `bun start` again. The app also warns you if the time zones don't match, and tells you the exact line to add.
+   **Check that time.** If it isn't the time on your phone, Debian is using the wrong time zone (it often starts on UTC), and your plans would be hours off. To fix it: press **Ctrl+C** to stop the server, and run `nano .env`. The last line reads `# TZ=America/Chicago`: delete the `#` and the space after it (a line starting with `#` is ignored), and change `America/Chicago` to your own time zone if it's different (it's a region and a city: `Europe/London`, `Asia/Manila`...). The line should read exactly like `TZ=America/Chicago`. Save, and run `bun start` again. The app also warns you if the time zones don't match, and tells you the exact line to add.
 
    **Leave Termux open** (you can switch to other apps, just don't close it).
 
@@ -144,7 +144,7 @@ From then on, starting Kitsikai is just:
 | Settings says notifications aren't available | Make sure Termux:API is installed from F-Droid, and that you started the server with the `--bind` command (or `./kitsikai.sh`). |
 | She stops texting first when the screen is off | Check Part 2 (battery: Unrestricted) and tap **Acquire wakelock** again. |
 | `bun: command not found` | Close Termux fully, open it, log in to Debian again (Part 3, step 4). |
-| The app says the server is in a different time zone, or plans show at the wrong time | Add the `TZ=` line the app suggests to `.env` (Part 5), and restart the server. |
+| The app says the server is in a different time zone, or plans show at the wrong time | In `.env`, the `TZ=` line must not start with `#` (Part 5). Restart the server after changing it. Still wrong? Start it with the time zone on the command: `TZ=America/Chicago bun start`. |
 
 ## Bringing over a chat from Lumiverse or SillyTavern
 

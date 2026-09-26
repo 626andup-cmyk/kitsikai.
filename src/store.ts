@@ -17,6 +17,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { ToolLog } from "./activity.ts";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { Plans } from "./planner.ts";
@@ -339,6 +340,8 @@ export class Store {
   readonly plans: Plans;
   /** Trackers and their log entries (see `src/trackers.ts`). */
   readonly trackers: Trackers;
+  /** Every tool call she makes (see `src/activity.ts`). */
+  readonly toolLog: ToolLog;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -359,6 +362,7 @@ export class Store {
     this.profiles = new Profiles(this.db);
     this.plans = new Plans(this.db);
     this.trackers = new Trackers(this.db);
+    this.toolLog = new ToolLog(this.db);
 
     if (isNew) this.seed();
   }

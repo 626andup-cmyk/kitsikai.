@@ -220,6 +220,36 @@ export const MIGRATIONS: Migration[] = [
       ).run(crypto.randomUUID(), new Date().toISOString());
     }
   },
+
+  // ---------------------------------------------------------------- 5
+  // Stage 6: the tool log. Every tool call she makes is kept, with the
+  // arguments exactly as the model wrote them, for the actions shown under
+  // her messages and for troubleshooting. (The same table as Aettica's.)
+  `
+  CREATE TABLE tool_calls (
+    id         TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL REFERENCES channels (id) ON DELETE CASCADE,
+    -- The turn the call belongs to: the same id as the messages it wrote.
+    turn_id    TEXT NOT NULL,
+    -- Which round of the turn: a model can call tools, see the results,
+    -- and call more.
+    round      INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    -- The arguments exactly as the model wrote them, even if broken.
+    arguments  TEXT NOT NULL,
+    -- What was sent back to the model, as JSON.
+    result     TEXT NOT NULL,
+    status     TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+    -- A short description for people, e.g. "looked up plans for Oct 1 to 7".
+    summary    TEXT NOT NULL DEFAULT '',
+    -- 'native' if the API returned it as a tool call, 'text' if it was
+    -- found written out in the reply (some models do that).
+    source     TEXT NOT NULL CHECK (source IN ('native', 'text')),
+    profile    TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX tool_calls_by_channel ON tool_calls (channel_id, created_at);
+  `,
 ];
 
 /**

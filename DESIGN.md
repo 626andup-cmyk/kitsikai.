@@ -252,7 +252,7 @@ All through nanoGPT, using Aettica's connection profiles and roulettes. Each job
 
 Each stage adds one new concept, so there's only ever one new thing to learn.
 
-**Progress:** stages 1 to 5 are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md), [docs/stage-3.md](docs/stage-3.md), [docs/stage-4.md](docs/stage-4.md) and [docs/stage-5.md](docs/stage-5.md).
+**Progress:** stages 1 to 6 are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md), [docs/stage-3.md](docs/stage-3.md), [docs/stage-4.md](docs/stage-4.md), [docs/stage-5.md](docs/stage-5.md) and [docs/stage-6.md](docs/stage-6.md).
 
 | Stage | Adds | New concept learned |
 | --- | --- | --- |

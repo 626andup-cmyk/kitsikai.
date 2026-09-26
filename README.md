@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 5 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) and [stage 5](docs/stage-5.md) (trackers: data you define yourself).
+**Status: stage 6 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself) and [stage 6](docs/stage-6.md) (tools: she looks things up).
 
 ## What it can do
 
@@ -15,6 +15,7 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
   - **Reminders**: each kind has defaults (a birthday: a week before and the morning of), changeable per plan. A reminder that would land during work moves to before it. (She'll send them from stage 8.)
 - **The 📈 trackers channel**: things for her to keep an eye out for (a headache, your meds, payday), each recording yes/no, a 1–10 scale, or a note, with your own hint words and whether she may bring it up. Log a **sticker** for a day in one tap; see the last two weeks at a glance; stickers also show on calendar days.
 - **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
+- **She knows your day**: today's and tomorrow's plans, and whether you're at work, are always in front of her. Anything further (next week's shifts, the headache log, another channel) she **looks up with tools** when it comes up, if her profile can use tools. What she looked up shows under her reply ("⚙ Kitsikai looked up plans for Oct 5–11"), and each channel has a **tool log**.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
@@ -92,6 +93,9 @@ src/
   replies.ts   Waiting a few seconds after your last bubble before she replies
   events.ts    The events stream: telling the app what happened, as it happens
   bubbles.ts   Splitting her replies into bubbles on <cht>
+  tools.ts     Her tools: looking things up in the binder
+  binder.ts    Plans, work and stickers, in words (for the prompt and the tools)
+  activity.ts  The tool log
   planner.ts   Plans: repeats, shift hours, draw time, work blocks, reminders, week totals
   dates.ts     Local dates and times, overnight ranges
   screenshot.ts  Reading shifts from a schedule screenshot, and checking them

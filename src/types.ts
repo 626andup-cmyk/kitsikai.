@@ -369,3 +369,30 @@ export interface LogEntry {
   createdAt: string;
   updatedAt: string;
 }
+
+// ------------------------------------------------------------ stage 6
+
+/**
+ * One tool call she made during a turn, as kept in the tool log (see
+ * `src/activity.ts`). The same shape as Aettica's.
+ */
+export interface ToolCallRecord {
+  id: string;
+  channelId: string;
+  /** The turn it belongs to: the same id as the messages that turn wrote. */
+  turnId: string;
+  /** Which round of the turn (a model can call tools, see results, and call more). */
+  round: number;
+  name: string;
+  /** The arguments exactly as the model wrote them. */
+  arguments: string;
+  /** What was sent back to the model, as JSON text. */
+  result: string;
+  status: "ok" | "error";
+  /** For people: "looked up plans for Oct 1–7". For errors, what went wrong. */
+  summary: string;
+  /** `native` if the API returned it as a tool call; `text` if it was written out in the reply. */
+  source: "native" | "text";
+  profile: string | null;
+  createdAt: string;
+}

@@ -24,12 +24,15 @@
  * instead of trusting that it saw every event.
  */
 
-import type { Channel, Message } from "./types.ts";
+import type { Channel, Message, ToolCallRecord } from "./types.ts";
 
 /** Everything the server announces. */
 export type ServerEvent =
-  /** New messages in a channel (yours or hers), possibly replacing old ones (a regeneration). */
-  | { type: "messages"; channelId: string; messages: Message[]; replacedIds?: string[] }
+  /**
+   * New messages in a channel (yours or hers), possibly replacing old ones
+   * (a regeneration), and the tools her turn used (stage 6).
+   */
+  | { type: "messages"; channelId: string; messages: Message[]; replacedIds?: string[]; toolCalls?: ToolCallRecord[] }
   /** Messages were deleted. */
   | { type: "deleted"; channelId: string; ids: string[] }
   /** The channels where she's writing right now changed. */

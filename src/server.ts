@@ -23,7 +23,8 @@
  *   PUT    /api/channels/order            Put the channels in a new order
  *   PATCH  /api/channels/:id              Rename a channel, or change its topic, theme or profile
  *   DELETE /api/channels/:id              Delete a channel and all its messages
- *   GET    /api/channels/:id/messages     Every message in a channel
+ *   GET    /api/channels/:id/messages     Every message in a channel, with the tools her turns used
+ *   GET    /api/channels/:id/tool-log     Every tool call in a channel, for troubleshooting
  *   POST   /api/channels/:id/messages     Send one bubble; she replies after a short wait (src/replies.ts)
  *   POST   /api/channels/:id/typing       You're still typing: she waits a little longer
  *   DELETE /api/channels/:id/messages     Delete every message in a channel
@@ -333,7 +334,17 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     {
       method: "GET",
       pattern: "/api/channels/:id/messages",
-      handler: (_request, { id }) => json({ messages: store.getMessages(id!) }),
+      handler: (_request, { id }) =>
+        // Her actions are shown under the messages their turn wrote.
+        json({ messages: store.getMessages(id!), toolCalls: store.toolLog.forChannel(id!) }),
+    },
+    {
+      method: "GET",
+      pattern: "/api/channels/:id/tool-log",
+      handler: (_request, { id }) => {
+        store.getChannel(id!); // 404 for an unknown channel
+        return json({ toolCalls: store.toolLog.forChannel(id!, 1000) });
+      },
     },
     {
       method: "POST",
@@ -772,7 +783,7 @@ export function errorFor(error: unknown): Response {
 
 /** A turn's result, as the app receives it. */
 function turnResult(result: TurnResult) {
-  return { kitsikaiMessages: result.messages };
+  return { kitsikaiMessages: result.messages, toolCalls: result.toolCalls, skipped: result.skipped };
 }
 
 // -------------------------------------------------------- request helpers

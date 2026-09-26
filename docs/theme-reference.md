@@ -129,6 +129,9 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.theme-editor`, `.code-input`, `.theme-files` | The theme editor |
 | `.profile-list`, `.profile-row`, `.profile-row-name`, `.roulette-entries`, `.roulette-entry`, `.roulette-share` | Profiles and roulettes |
 | `.entry-badges`, `.entry-badge` | Small labels, like "tools" on a profile |
+| `.activity`, `.activity-summary`, `.activity-details` | What her turn looked up, under its last bubble. `.activity` gets `.has-errors` if a call failed. |
+| `.tool-call`, `.tool-call-head`, `.tool-call-name`, `.tool-call-summary`, `.tool-call-raw` | One tool call, in the activity details and the tool log. Has `data-status` (`ok` or `error`) and `data-source` (`native` or `text`). |
+| `.tool-log`, `.tool-log-list`, `.tool-log-actions` | The tool log dialog |
 | `.tool-test-row`, `.tool-test` | "Test tools" and its result, which has `data-verdict` (`native`, `text`, `none` or `broken`) |
 | `.planner-view`, `.planner-toolbar`, `.planner-tabs`, `.planner-tab`, `.planner-period`, `.planner-nav`, `.planner-title` | The planner channel's screen and its toolbar. The chosen tab has `aria-selected="true"`. |
 | `.calendar`, `.calendar-weekday`, `.calendar-day`, `.calendar-day-number` | The month grid. A day has `data-date`, and `.outside` (another month), `.today`, `.double-booked`, and `aria-pressed="true"` when selected. |

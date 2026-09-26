@@ -42,6 +42,12 @@ const state = {
   editingRoulette: null,
   /** Messages in the open channel: {id, channelId, author, content, turnId, createdAt, editedAt?, model?, profile?}. */
   messages: [],
+  /** The open channel's tool calls (her lookups), oldest first (stage 6). */
+  toolCalls: [],
+  /** Turn ids whose action details are expanded under their messages. */
+  openActivity: new Set(),
+  /** The full tool log of the open channel, while the tool log is open. */
+  toolLog: [],
   /** Ids of channels where she's writing right now. */
   busy: new Set(),
   /** Id of the message being edited, if any. */
@@ -193,6 +199,7 @@ async function openChannel(channelId) {
   state.channelId = channelId;
   state.editingId = null;
   state.messages = [];
+  state.toolCalls = [];
   state.unread.delete(channelId);
   resetReveal();
   hideError();
@@ -213,10 +220,11 @@ async function openChannel(channelId) {
 
   if (channelId) {
     try {
-      const { messages } = await api("GET", channelPath("messages", channelId));
+      const { messages, toolCalls } = await api("GET", channelPath("messages", channelId));
       // Ignore the answer if you switched again while it was loading.
       if (state.channelId !== channelId) return;
       state.messages = messages;
+      state.toolCalls = toolCalls;
     } catch (error) {
       showError(`Couldn't load this channel: ${error.message}`, () => openChannel(channelId));
     }
@@ -372,7 +380,7 @@ let placeholderCount = 0;
  *
  * @param replacedIds  Messages these replace (a regeneration).
  */
-function receiveMessages(channelId, messages, replacedIds = []) {
+function receiveMessages(channelId, messages, replacedIds = [], toolCalls = []) {
   if (channelId !== state.channelId) {
     // Another channel: just mark it unread if she wrote something there.
     if (messages.some((m) => m.author === "kitsikai")) {
@@ -386,6 +394,8 @@ function receiveMessages(channelId, messages, replacedIds = []) {
     state.messages = state.messages.filter((m) => !replaced.has(m.id));
     reveal.queue = reveal.queue.filter((m) => !replaced.has(m.id));
   }
+  // Her actions this turn (stage 6), shown under its last bubble.
+  for (const call of toolCalls) if (!state.toolCalls.some((c) => c.id === call.id)) state.toolCalls.push(call);
   const known = (id) => state.messages.some((m) => m.id === id) || reveal.queue.some((m) => m.id === id);
   for (const message of messages) {
     if (known(message.id)) continue;
@@ -462,12 +472,13 @@ async function refreshMessages() {
   const channelId = state.channelId;
   if (!channelId) return;
   try {
-    const { messages } = await api("GET", channelPath("messages", channelId));
+    const { messages, toolCalls } = await api("GET", channelPath("messages", channelId));
     if (state.channelId !== channelId) return;
     // Keep bubbles that are still on their way to the server.
     const pending = state.messages.filter((m) => m.pending);
     resetReveal();
     state.messages = [...messages, ...pending];
+    state.toolCalls = toolCalls;
   } catch (error) {
     showError(`Couldn't reload this channel: ${error.message}`, () => refreshMessages());
   }
@@ -585,7 +596,8 @@ async function runTurn(action, retry, body = {}) {
   try {
     const data = await api("POST", channelPath(action, channelId), body);
     state.busy.delete(channelId);
-    if (data.kitsikaiMessages) receiveMessages(channelId, data.kitsikaiMessages, data.replacedIds ?? []);
+    if (data.kitsikaiMessages) receiveMessages(channelId, data.kitsikaiMessages, data.replacedIds ?? [], data.toolCalls ?? []);
+    if (data.skipped && state.channelId === channelId) showNotice(`${herName()} chose not to reply this time.`);
   } catch (error) {
     state.busy.delete(channelId);
     if (state.channelId === channelId) showError(error.message, retry);
@@ -649,7 +661,7 @@ function connectEvents() {
 function handleEvent(event) {
   switch (event.type) {
     case "messages":
-      receiveMessages(event.channelId, event.messages, event.replacedIds ?? []);
+      receiveMessages(event.channelId, event.messages, event.replacedIds ?? [], event.toolCalls ?? []);
       break;
     case "deleted":
       if (event.channelId === state.channelId) {
@@ -843,7 +855,7 @@ function renderMessages() {
     return;
   }
 
-  if (state.messages.length === 0) {
+  if (state.messages.length === 0 && state.toolCalls.length === 0) {
     els.messages.append(emptyNote(`Nothing here yet. Say hi, or press “Her turn” to let ${herName()} start.`));
     return;
   }
@@ -852,8 +864,21 @@ function renderMessages() {
   const last = state.messages.at(-1);
   const canRegenerate = last?.author === "kitsikai";
 
+  // Tool calls grouped by turn (stage 6). Turns that wrote messages show
+  // their actions under them; turns that only acted are shown on their own,
+  // in time order.
+  const turns = toolCallsByTurn();
+  const withMessages = new Set(state.messages.map((m) => m.turnId).filter(Boolean));
+  const waiting = new Set(reveal.queue.map((m) => m.turnId));
+  const loose = [...turns].filter(([turnId]) => !withMessages.has(turnId) && !waiting.has(turnId));
+
   let previous = null;
-  for (const message of state.messages) {
+  state.messages.forEach((message, index) => {
+    while (loose.length && loose[0][1][0].createdAt <= message.createdAt) {
+      const [turnId, calls] = loose.shift();
+      els.messages.append(renderActivity(turnId, calls));
+      previous = null;
+    }
     els.messages.append(
       renderMessage(message, {
         continued: continuesGroup(previous, message),
@@ -861,7 +886,14 @@ function renderMessages() {
       }),
     );
     previous = message;
-  }
+    // After a turn's last bubble (once they've all appeared), what it looked up.
+    const next = state.messages[index + 1];
+    if (message.turnId && turns.has(message.turnId) && next?.turnId !== message.turnId && !waiting.has(message.turnId)) {
+      els.messages.append(renderActivity(message.turnId, turns.get(message.turnId)));
+      previous = null;
+    }
+  });
+  for (const [turnId, calls] of loose) els.messages.append(renderActivity(turnId, calls));
 }
 
 /**
@@ -2066,6 +2098,147 @@ function openRegenerateWith() {
   $("regenerate-dialog").showModal();
 }
 
+// ------------------------------------------------------ her actions (stage 6)
+
+/*
+ * She looks things up with tools (src/tools.ts). Each turn's tool calls are
+ * shown under the bubbles it wrote, as one line ("⚙ Kitsikai looked up plans
+ * for Oct 1–7") that opens into the details: every call, its arguments
+ * exactly as the model wrote them, and what it was told back. (From Aettica.)
+ */
+
+/** The open channel's tool calls, grouped by turn: Map of turnId → calls. */
+function toolCallsByTurn() {
+  const turns = new Map();
+  for (const call of state.toolCalls) {
+    if (!turns.has(call.turnId)) turns.set(call.turnId, []);
+    turns.get(call.turnId).push(call);
+  }
+  return turns;
+}
+
+/** One turn's actions: a summary line that opens into the details. */
+function renderActivity(turnId, calls) {
+  const root = document.createElement("div");
+  root.className = "activity";
+  const errors = calls.filter((c) => c.status === "error").length;
+  if (errors) root.classList.add("has-errors");
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "activity-summary";
+  const open = state.openActivity.has(turnId);
+  toggle.setAttribute("aria-expanded", String(open));
+  // Only the actions that did something, once each ("read X" twice is noise).
+  const done = [...new Set(calls.filter((c) => c.status === "ok").map((c) => c.summary))];
+  const text = done.length ? `${herName()} ${done.join(", ")}` : `${herName()} tried to look something up`;
+  toggle.textContent = `⚙ ${text}${errors ? ` · ${errors} error${errors === 1 ? "" : "s"}` : ""}`;
+  toggle.addEventListener("click", () => {
+    if (state.openActivity.has(turnId)) state.openActivity.delete(turnId);
+    else state.openActivity.add(turnId);
+    renderMessages();
+  });
+  root.append(toggle);
+
+  if (open) {
+    const list = document.createElement("ol");
+    list.className = "activity-details";
+    list.append(...calls.map(renderToolCall));
+    root.append(list);
+  }
+  return root;
+}
+
+/** One tool call, in full: for the activity details and the tool log. */
+function renderToolCall(call) {
+  const item = document.createElement("li");
+  item.className = "tool-call";
+  item.dataset.status = call.status;
+  item.dataset.source = call.source;
+
+  const head = document.createElement("div");
+  head.className = "tool-call-head";
+  const name = document.createElement("code");
+  name.className = "tool-call-name";
+  name.textContent = call.name;
+  head.append(name, badge(call.status === "ok" ? "ok" : "error"));
+  if (call.source === "text") head.append(badge("written as text"));
+  head.append(badge(`round ${call.round + 1}`));
+  if (call.profile) head.append(badge(call.profile));
+  const time = document.createElement("time");
+  time.className = "message-time";
+  time.dateTime = call.createdAt;
+  time.textContent = formatTime(call.createdAt);
+  head.append(time);
+
+  const summary = document.createElement("p");
+  summary.className = "tool-call-summary";
+  summary.textContent = call.summary;
+
+  const details = document.createElement("details");
+  details.className = "tool-call-raw";
+  const label = document.createElement("summary");
+  label.textContent = "Arguments and result";
+  const args = document.createElement("pre");
+  args.textContent = prettyJson(call.arguments);
+  const result = document.createElement("pre");
+  result.textContent = prettyJson(call.result);
+  details.append(label, args, result);
+
+  item.append(head, summary, details);
+  return item;
+}
+
+/** JSON text, indented if it parses, as-is if it doesn't (broken arguments stay visible). */
+function prettyJson(text) {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text || "(empty)";
+  }
+}
+
+async function openToolLog() {
+  $("tool-log-copy").textContent = "Copy as text";
+  try {
+    const { toolCalls } = await api("GET", channelPath("tool-log"));
+    state.toolLog = toolCalls;
+    renderToolLog();
+    $("tool-log-dialog").showModal();
+  } catch (error) {
+    showFormError(els.channelForm, error.message);
+  }
+}
+
+function renderToolLog() {
+  const errorsOnly = $("tool-log-errors").checked;
+  const calls = [...state.toolLog].reverse().filter((c) => !errorsOnly || c.status === "error");
+  const list = $("tool-log-list");
+  if (calls.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "hint";
+    empty.textContent = errorsOnly ? "No errors." : `${herName()} hasn't used any tools here yet.`;
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(...calls.map(renderToolCall));
+}
+
+/** Copy the tool log as plain text, e.g. to share when something goes wrong. */
+async function copyToolLog() {
+  const text = state.toolLog
+    .map((c) =>
+      [`${c.createdAt}  ${c.profile ?? ""}  round ${c.round + 1}  ${c.source}  ${c.status}`, `${c.name} ${c.arguments}`, `-> ${c.result}`].join("\n"),
+    )
+    .join("\n\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    $("tool-log-copy").textContent = "Copied";
+  } catch {
+    showFormError($("tool-log-dialog"), "Couldn't copy: your browser didn't allow it.");
+  }
+}
+
 // ------------------------------------------------------------- tool test
 
 /** Under "Test tools" in the profile editor: the last result, or a hint. */
@@ -2209,6 +2382,9 @@ $("new-channel-button").addEventListener("click", openNewChannel);
 $("new-channel-form").addEventListener("submit", createChannel);
 $("new-channel-form").addEventListener("change", updateNewChannelKind);
 $("preview-prompt").addEventListener("click", previewPrompt);
+$("open-tool-log").addEventListener("click", openToolLog);
+$("tool-log-errors").addEventListener("change", renderToolLog);
+$("tool-log-copy").addEventListener("click", copyToolLog);
 $("clear-channel").addEventListener("click", clearChannel);
 
 $("open-models").addEventListener("click", openModels);

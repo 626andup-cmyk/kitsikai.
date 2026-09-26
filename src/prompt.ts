@@ -13,7 +13,9 @@
  *   2. How you text            bubbles, split with <cht>
  *   3. Where you're texting    this channel, its topic, and the others
  *   4. Right now               the date and time on the phone
- *   5. Model notes             the connection profile's notes on this model
+ *   5. Today and tomorrow      your plans for both days, and whether you're at work (stage 6)
+ *   6. Tools                   how to use her lookups, if the profile can (stage 6)
+ *   7. Model notes             the connection profile's notes on this model
  *
  * Later stages add more sections in between (channels, plans, her notes and
  * pins), but the shape stays the same.
@@ -40,6 +42,14 @@ omg wait ${BUBBLE_MARKER} you actually said that to him?? ${BUBBLE_MARKER} legen
 One bubble is fine too, when that's all you'd send. Write only your texts: no quotation marks, no name in front, no narration or stage directions, no preamble.
 
 Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to show when time has passed. Never write them yourself.`;
+
+/** Before today's and tomorrow's plans: where they come from. */
+export const PLANNER_NOTE = `From the planner you share with them (their shifts and plans; "not confirmed yet" means they haven't checked it):`;
+
+/** How to use her lookup tools (stage 6). */
+export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), and what you said in other channels (read_channel).
+
+Use tools only when they help: most texts need none. If a plan or something logged comes up and it isn't in front of you, look it up instead of guessing. Never mention tools or looking things up: just know it, like a friend who remembers. If there's nothing you'd text, you can call do_nothing.`;
 
 /**
  * Messages sent when she takes a turn without a new message from you.
@@ -77,6 +87,10 @@ export interface PromptInput {
   now: Date;
   /** The connection profile's notes on this model's habits. */
   modelNotes?: string;
+  /** Today's and tomorrow's plans, in words (see `todayAndTomorrow` in src/binder.ts). */
+  todayAndTomorrow?: string;
+  /** Whether she can use tools this turn (adds guidance on them). */
+  tools?: boolean;
 }
 
 /**
@@ -84,12 +98,15 @@ export interface PromptInput {
  *
  * @returns The messages to send to the chat completions API.
  */
-export function buildPromptStack({ settings, channel, channels, messages, now, modelNotes }: PromptInput): ChatMessage[] {
+export function buildPromptStack(input: PromptInput): ChatMessage[] {
+  const { settings, channel, channels, messages, now, modelNotes, tools } = input;
   const layers: Layer[] = [
     { title: "Who you are", content: joinNonEmpty([FRAMING, settings.persona, whoTheyAre(settings)]) },
     { title: "How you text", content: TEXTING_STYLE },
     { title: "Where you're texting", content: describeChannels(channel, channels ?? [channel]) },
     { title: "Right now", content: describeNow(now) },
+    { title: "Today and tomorrow", content: input.todayAndTomorrow ? `${PLANNER_NOTE}\n\n${input.todayAndTomorrow}` : null },
+    { title: "Tools", content: tools ? TOOL_GUIDANCE : null },
     { title: "Model notes", content: modelNotes },
   ];
 

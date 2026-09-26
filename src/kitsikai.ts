@@ -1,6 +1,21 @@
 /**
  * Kitsikai's turn: the single place where she writes something.
  *
+ * ## Tools (stage 6)
+ *
+ * If the turn's connection profile can use tools, the model is offered them
+ * (src/tools.ts: looking things up in the binder), and a turn becomes a
+ * small loop, as in Aettica:
+ *
+ *   1. Ask the model. It replies with text, tool calls, or both.
+ *   2. If it called tools, run each one, log it, and send the results back.
+ *   3. Repeat, up to `MAX_ROUNDS` times, until it replies without calling
+ *      anything. Its text is her reply.
+ *
+ * Tool calls written out in the reply's text instead of the API's field
+ * (some models do this) are found and run too (src/toolcalls.ts). Every
+ * call, and every mistake, goes into the tool log.
+ *
  * The design's core rule (same as Aettica's) is that *a Kitsikai turn never
  * requires a user message*. There is one "takes a turn" function, and
  * anything can call it:
@@ -16,14 +31,19 @@
  * turns an add-on instead of a rewrite later.
  */
 
+import { todayAndTomorrow } from "./binder.ts";
 import { splitBubbles } from "./bubbles.ts";
 import type { Events } from "./events.ts";
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
 import { parseExtraParams } from "./profiles.ts";
 import { buildPromptStack, stripTimeMarkers } from "./prompt.ts";
 import type { Store } from "./store.ts";
-import { extractTextToolCalls, parseArguments } from "./toolcalls.ts";
-import type { Channel, ChatMessage, Message, Profile } from "./types.ts";
+import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
+import { runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
+import type { ApiMessage, ApiToolCall, Channel, ChatMessage, Message, Profile, ToolCallRecord } from "./types.ts";
+
+/** The most rounds of tool calls in one turn. The last round is offered no tools, so it has to write. */
+export const MAX_ROUNDS = 6;
 
 /**
  * What caused a turn. Used for the server log.
@@ -54,6 +74,10 @@ export interface TurnResult {
   messages: Message[];
   /** The messages that were replaced (a regeneration that wrote something). */
   replaced: string[];
+  /** Every tool call made during the turn, in order. */
+  toolCalls: ToolCallRecord[];
+  /** She chose not to write (do_nothing, or nothing to say). */
+  skipped: boolean;
 }
 
 /** Thrown when a turn is requested in a channel where one is still being written. */
@@ -78,7 +102,7 @@ export function pickProfile(store: Store, channel: Channel, random?: number): Pr
 export interface PromptOptions {
   /** Messages to leave out (the ones being regenerated). */
   excludeIds?: string[];
-  /** The profile writing: its model notes. */
+  /** The profile writing: its model notes, and whether tools are offered. */
   profile?: Profile;
   /** The time "now" (tests pass their own). */
   now?: Date;
@@ -99,13 +123,16 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     .recentMessages(channelId, settings.historyLimit + excluded.size)
     .filter((m) => !excluded.has(m.id))
     .slice(-settings.historyLimit);
+  const now = options.now ?? new Date();
   return buildPromptStack({
     settings,
     channel,
     channels: store.listChannels(),
     messages,
-    now: options.now ?? new Date(),
+    now,
     modelNotes: options.profile?.quirkPrompt,
+    todayAndTomorrow: todayAndTomorrow(store, now),
+    tools: options.profile?.supportsTools ?? false,
   });
 }
 
@@ -198,38 +225,53 @@ export class Kitsikai {
     this.announceBusy();
     try {
       const profile = options.profileId ? this.store.profiles.get(options.profileId) : pickProfile(this.store, channel);
-      const conversation = promptForChannel(this.store, channelId, {
+      const now = this.clock();
+      const conversation: ApiMessage[] = promptForChannel(this.store, channelId, {
         excludeIds: options.replacing,
         profile,
-        now: this.clock(),
+        now,
       });
+      const context: ToolContext = { store: this.store, channel, now };
+      const tools = profile.supportsTools ? toolSpecs() : [];
+      const turnId = crypto.randomUUID();
 
       const started = Date.now();
-      console.log(`[kitsikai] turn started in #${channel.name} (${trigger}) using "${profile.name}" (${profile.model})`);
-      const response = await createChatCompletion(this.api, {
-        ...profileRequest(profile),
-        messages: conversation,
-        signal: controller.signal,
-      });
+      console.log(
+        `[kitsikai] turn started in #${channel.name} (${trigger}) using "${profile.name}" (${profile.model})` +
+          (tools.length ? `, ${tools.length} tools` : ""),
+      );
+      const loop = await this.toolLoop({ conversation, tools, context, profile, turnId, signal: controller.signal });
       // Belt and braces: if the turn was stopped just as the reply arrived,
       // don't save it.
       if (controller.signal.aborted) throw new CancelledError();
-      console.log(`[kitsikai] turn finished in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+      console.log(
+        `[kitsikai] turn finished in ${((Date.now() - started) / 1000).toFixed(1)}s after ${loop.rounds} round(s), ` +
+          `${loop.toolCalls.length} tool call(s)`,
+      );
 
       // One message per bubble (see src/bubbles.ts).
-      const bubbles = splitBubbles(stripTimeMarkers(response.content));
-      const result: TurnResult = { messages: [], replaced: [] };
-      if (bubbles.length === 0) return result;
-
-      // Swap old for new in one transaction: never both, never neither.
-      result.messages = this.store.db.transaction(() => {
-        for (const id of options.replacing ?? []) this.store.deleteMessage(id);
-        return this.store.addTurn(
-          bubbles.map((content) => ({ channelId, author: "kitsikai", content, model: response.model, profile: profile.name })),
-        );
-      })();
-      result.replaced = options.replacing ?? [];
-      this.events?.publish({ type: "messages", channelId, messages: result.messages, replacedIds: result.replaced });
+      const bubbles = loop.stopped ? [] : splitBubbles(stripTimeMarkers(loop.content));
+      const result: TurnResult = { messages: [], replaced: [], toolCalls: loop.toolCalls, skipped: bubbles.length === 0 };
+      if (bubbles.length > 0) {
+        // Swap old for new in one transaction: never both, never neither.
+        result.messages = this.store.db.transaction(() => {
+          for (const id of options.replacing ?? []) this.store.deleteMessage(id);
+          return this.store.addTurn(
+            bubbles.map((content) => ({ channelId, author: "kitsikai", content, model: loop.model, profile: profile.name })),
+            turnId,
+          );
+        })();
+        result.replaced = options.replacing ?? [];
+      }
+      if (result.messages.length || result.toolCalls.length) {
+        this.events?.publish({
+          type: "messages",
+          channelId,
+          messages: result.messages,
+          replacedIds: result.replaced,
+          toolCalls: result.toolCalls,
+        });
+      }
       return result;
     } finally {
       // Always release the lock, even if generation failed. Otherwise one
@@ -242,6 +284,110 @@ export class Kitsikai {
       }
     }
   }
+
+  /**
+   * Ask the model, run any tools it calls, send back the results, and
+   * repeat until it writes without calling anything (see the top of this
+   * file). From Aettica's partner.ts.
+   *
+   * @returns The text to send (possibly ""), the calls made, whether she
+   *          chose to do nothing, and the model that answered.
+   */
+  private async toolLoop(turn: {
+    conversation: ApiMessage[];
+    tools: ToolSpec[];
+    context: ToolContext;
+    profile: Profile;
+    turnId: string;
+    signal: AbortSignal;
+  }): Promise<{ content: string; toolCalls: ToolCallRecord[]; stopped: boolean; rounds: number; model: string }> {
+    const { conversation, tools, context, profile, turnId, signal } = turn;
+    const toolCalls: ToolCallRecord[] = [];
+    let content = "";
+    let model = profile.model;
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      if (signal.aborted) throw new CancelledError();
+      // The last round offers no tools, so the model has to write.
+      const offered = round < MAX_ROUNDS - 1 ? tools : [];
+      const response = await createChatCompletion(this.api, {
+        ...profileRequest(profile),
+        messages: conversation,
+        tools: offered,
+        // After looking something up, the model may have nothing more to say.
+        allowEmpty: round > 0,
+        signal,
+      });
+      model = response.model;
+
+      // Tool calls from the API, or failing that, written in the text.
+      let calls: ParsedCall[] = response.toolCalls.map((c) => ({ ...c, source: "native" as const }));
+      let text = response.content;
+      if (calls.length === 0 && tools.length > 0) {
+        const found = extractTextToolCalls(text);
+        calls = found.calls;
+        text = found.content;
+      }
+      if (text.trim() !== "") content = text.trim();
+      if (calls.length === 0) return { content, toolCalls, stopped: false, rounds: round + 1, model };
+
+      // Record the model's request in the conversation, then each result.
+      const native = calls.every((c) => c.source === "native");
+      if (native) {
+        const apiCalls: ApiToolCall[] = calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } }));
+        conversation.push({ role: "assistant", content: response.content || null, tool_calls: apiCalls });
+      } else {
+        conversation.push({ role: "assistant", content: response.content });
+      }
+
+      let stopped = false;
+      const textResults: string[] = [];
+      for (const call of calls) {
+        const outcome =
+          offered.length === 0
+            ? failed("You're out of tool rounds for this turn, so this wasn't run. Write your reply now.")
+            : this.runCall(context, call);
+        toolCalls.push(
+          this.store.toolLog.add({
+            channelId: context.channel.id,
+            turnId,
+            round,
+            name: call.name,
+            arguments: call.arguments,
+            result: JSON.stringify(outcome.result),
+            status: outcome.ok ? "ok" : "error",
+            summary: outcome.summary,
+            source: call.source,
+            profile: profile.name,
+          }),
+        );
+        console.log(
+          `[tools] #${context.channel.name} round ${round + 1} (${call.source}): ${call.name} ${call.arguments.slice(0, 200)}` +
+            ` -> ${outcome.ok ? "ok" : "error"}: ${outcome.summary}`,
+        );
+        if (native) conversation.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(outcome.result) });
+        else textResults.push(`${call.name}: ${JSON.stringify(outcome.result)}`);
+        if (outcome.stop) stopped = true;
+      }
+      if (!native) conversation.push({ role: "user", content: `(Tool results)\n${textResults.join("\n")}` });
+
+      if (stopped) return { content: "", toolCalls, stopped: true, rounds: round + 1, model };
+      // The last round ran nothing; whatever text it had is the reply.
+      if (offered.length === 0) return { content, toolCalls, stopped: false, rounds: round + 1, model };
+    }
+    return { content, toolCalls, stopped: false, rounds: MAX_ROUNDS, model };
+  }
+
+  /** Parse one call's arguments and run it. */
+  private runCall(context: ToolContext, call: ParsedCall): ToolOutcome {
+    const args = parseArguments(call.arguments);
+    if (!args.ok) return failed(`${args.error} Call ${call.name} again with valid JSON arguments.`);
+    return runTool(context, call.name, args.value);
+  }
+}
+
+function failed(message: string): ToolOutcome {
+  return { ok: false, result: { error: message }, summary: message };
 }
 
 // ------------------------------------------------------------ tool test

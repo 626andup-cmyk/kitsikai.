@@ -369,6 +369,7 @@
           <button type="button" class="button" id="channel-move-up" title="Move up in the sidebar">↑</button>
           <button type="button" class="button" id="channel-move-down" title="Move down in the sidebar">↓</button>
           <button type="button" class="button text-only" id="preview-prompt">Preview prompt</button>
+          <button type="button" class="button text-only" id="open-tool-log">Tool log</button>
           <span class="spacer"></span>
           <button type="button" class="button" data-close>Cancel</button>
           <button type="submit" class="button button-primary">Save</button>
@@ -498,7 +499,8 @@
           <input type="checkbox" name="supportsTools" />
           <span
             ><strong>Can use tools</strong><br /><span class="hint"
-              >Lets her look things up (from stage 6). Turn off for models that can't, and they'll just write.</span
+              >Lets her look things up: your plans further out, the log, other channels. Turn off for models that
+              can't, and they'll just write.</span
             ></span
           >
         </label>
@@ -885,6 +887,27 @@
           <button type="submit" class="button button-primary">Save</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- Every tool call in the open channel, for troubleshooting (stage 6, from Aettica). -->
+    <dialog id="tool-log-dialog" class="dialog surface tool-log">
+      <h2 class="dialog-title">Tool log</h2>
+      <p class="hint">
+        Every tool she called in this channel, newest first, with the arguments exactly as the model wrote them and
+        what it was told back. "Written as text" means the model wrote the call into its reply instead of using the
+        API.
+      </p>
+      <div class="dialog-buttons tool-log-actions">
+        <label class="check-inline"><input type="checkbox" id="tool-log-errors" /> Errors only</label>
+        <span class="spacer"></span>
+        <button type="button" class="button" id="tool-log-copy">Copy as text</button>
+      </div>
+      <ol id="tool-log-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
     </dialog>
 
     <!-- Shows the exact prompt stack her next turn would send. -->

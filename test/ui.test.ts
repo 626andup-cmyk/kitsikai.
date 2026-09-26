@@ -346,5 +346,29 @@ describeUi("the app in a browser", () => {
     expect(await page.textContent("#channel-name")).toBe("general");
     expect(t.errors).toEqual([]);
   });
+
+  test("her lookups show under her reply, open into details, and fill the tool log", async () => {
+    const { page, fake } = t;
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    fake.replies.push(
+      { toolCalls: [{ name: "list_trackers", arguments: {} }] },
+      { content: "nothing tracked yet<cht>want me to watch for something?" },
+    );
+    await page.fill("#composer-input", "what are you keeping an eye on");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".activity-summary");
+    expect(await page.textContent(".activity-summary")).toBe("⚙ Kitsikai looked at the trackers");
+    // The activity line comes after both bubbles.
+    const order = await page.$$eval(".messages > *", (nodes) => nodes.map((n) => n.className.split(" ")[0]));
+    expect(order.slice(-3)).toEqual(["message", "message", "activity"]);
+    await page.click(".activity-summary");
+    await page.waitForSelector(".activity-details .tool-call-name:has-text('list_trackers')");
+
+    await page.click("#channel-settings-button");
+    await page.click("#open-tool-log");
+    await page.waitForSelector("#tool-log-list .tool-call");
+    expect(await page.$$eval("#tool-log-list .tool-call", (n) => n.length)).toBe(1);
+    expect(t.errors).toEqual([]);
+  });
 });
 

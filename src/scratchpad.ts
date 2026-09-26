@@ -215,10 +215,10 @@ export class Scratchpad {
         kind: "yesno",
         question: `Do their NEW messages say that "${t.name}" happened? Only if they say it did: "no ${t.name} today" doesn't count.`,
       });
-      questions.push({ id: `${id}.day`, kind: "choice", question: `If "${t.name}" happened, when?`, options: ["today", "yesterday"] });
+      questions.push({ id: `${id}_day`, kind: "choice", question: `If "${t.name}" happened, when?`, options: ["today", "yesterday"] });
       if (t.kind === "scale") {
         questions.push({
-          id: `${id}.level`,
+          id: `${id}_level`,
           kind: "choice",
           question: `If "${t.name}" happened, how much, from 1 (a little) to 10 (the worst)?`,
           options: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
@@ -366,10 +366,10 @@ export class Scratchpad {
     c.trackers.forEach((tracker, i) => {
       const id = `t${i + 1}`;
       if (tier(answers.get(id), threshold) !== "yes") return;
-      const date = answers.get(`${id}.day`)?.selected === "yesterday" ? addDays(today, -1) : today;
+      const date = answers.get(`${id}_day`)?.selected === "yesterday" ? addDays(today, -1) : today;
       const hit = { tracker, date, value: null as string | null, reason: `they said so (${sure(id)})` };
       if (tracker.kind === "yesno") hit.value = "yes";
-      if (tracker.kind === "scale") hit.value = answers.get(`${id}.level`)?.selected ?? null;
+      if (tracker.kind === "scale") hit.value = answers.get(`${id}_level`)?.selected ?? null;
       if (tracker.kind === "note") {
         const request: WriteRequest = { id: nextId(), kind: "value", tracker: tracker.name };
         writeRequests.push(request);

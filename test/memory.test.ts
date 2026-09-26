@@ -86,7 +86,7 @@ function listen(): ServerEvent[] {
 describe("the scratchpad check", () => {
   test("Jev reads your new messages with the trackers as clues, and a hit becomes a note she can see", async () => {
     const headache = app.store.trackers.create({ name: "headache", kind: "scale", hintWords: ["head", "migraine"] });
-    fake.jevReplies.push({ t1: "yes", "t1.day": "today", "t1.level": "7" });
+    fake.jevReplies.push({ t1: "yes", "t1_day": "today", "t1_level": "7" });
     const message = await send("ugh my head is killing me");
 
     const request = fake.jevRequests[0]!;
@@ -94,7 +94,7 @@ describe("the scratchpad check", () => {
     expect(request.state).toContain("Today is Saturday, September 26, 2026, 4:00 PM.");
     expect(request.state).toContain("them (NEW): ugh my head is killing me");
     expect(request.state).toContain("- headache: how much, 1 to 10 (clue words: head, migraine)");
-    expect(request.questions.map((q) => q.id)).toEqual(["t1", "t1.day", "t1.level", "plan", "remember", "request", "soon"]);
+    expect(request.questions.map((q) => q.id)).toEqual(["t1", "t1_day", "t1_level", "plan", "remember", "request", "soon"]);
     expect(request.questions[0]!.question).toContain('"no headache today" doesn\'t count');
 
     expect(memory().notes()).toEqual([
@@ -126,14 +126,14 @@ describe("the scratchpad check", () => {
 
   test("yes/no trackers, and yesterday", async () => {
     app.store.trackers.create({ name: "took meds", kind: "yesno" });
-    fake.jevReplies.push({ t1: "yes", "t1.day": "yesterday" });
+    fake.jevReplies.push({ t1: "yes", "t1_day": "yesterday" });
     await send("I did take my meds last night btw");
     expect(memory().notes()[0]).toMatchObject({ text: "took meds on Fri, Sep 25", value: "yes", date: "2026-09-25" });
   });
 
   test("note trackers get their value from the processing writer", async () => {
     app.store.trackers.create({ name: "payday", kind: "note" });
-    fake.jevReplies.push({ t1: "yes", "t1.day": "today" });
+    fake.jevReplies.push({ t1: "yes", "t1_day": "today" });
     fake.replies.push({ content: '{"w1": {"text": "got paid", "value": "$1,240"}}' }, { content: "yay" });
     await send("PAYDAY. $1240 baby");
     expect(fake.requests[0]!.messages[1]!.content).toContain('what to log for their "payday" tracker');
@@ -152,7 +152,7 @@ describe("the scratchpad check", () => {
 
   test("a new value rewrites the note for that tracker and day, instead of adding another", async () => {
     app.store.trackers.create({ name: "headache", kind: "scale" });
-    fake.jevReplies.push({ t1: "yes", "t1.day": "today", "t1.level": "6" }, { t1: "yes", "t1.day": "today", "t1.level": "9", n1: "changed it" });
+    fake.jevReplies.push({ t1: "yes", "t1_day": "today", "t1_level": "6" }, { t1: "yes", "t1_day": "today", "t1_level": "9", n1: "changed it" });
     await send("headache again");
     await send("ok it's more like a 9 now");
     expect(fake.jevRequests[1]!.state).toContain("Kitsikai's notes, not processed yet:\n- n1: headache 6/10 on Sat, Sep 26");
@@ -363,7 +363,7 @@ describe("processing", () => {
 
   test("something to remember is kept to bring up, and pinned if it matters right now", async () => {
     const note = addNote({ kind: "remember", text: "exam on friday, they're nervous" });
-    fake.jevReplies.push({ n1: "yes", "n1.pin": "yes" });
+    fake.jevReplies.push({ n1: "yes", "n1_pin": "yes" });
     fake.replies.push({ content: '{"new1": {"text": "exam on friday", "reason": "they\'re really nervous", "unpin_when": "after the exam", "unpin_date": "2026-10-02"}}' });
     const { log } = await process();
     expect(fake.requests[0]!.messages[1]!.content).toContain('- "new1": exam on friday, they\'re nervous');
@@ -378,7 +378,7 @@ describe("processing", () => {
     const note = addNote({ kind: "remember", text: "stressed about the new manager" });
     memory().updateNote(note.id, { confirmed: true }, time);
     const { log } = await process();
-    expect(fake.jevRequests[0]!.questions.map((q) => q.id)).toEqual(["n1.pin"]);
+    expect(fake.jevRequests[0]!.questions.map((q) => q.id)).toEqual(["n1_pin"]);
     expect(fake.jevRequests[0]!.state).toContain("they confirmed it): stressed about the new manager");
     expect(memory().getNote(note.id).status).toBe("bringup");
     expect(log[0]!.reason).toBe("they confirmed it");
@@ -406,7 +406,7 @@ describe("processing", () => {
     app.store.updateSettings({ pinCap: 1 });
     const old = addPin("old thing");
     addNote({ kind: "remember", text: "exam on friday" });
-    fake.jevReplies.push({ n1: "yes", "n1.pin": "yes" }, { drop: "p1" });
+    fake.jevReplies.push({ n1: "yes", "n1_pin": "yes" }, { drop: "p1" });
     fake.replies.push({ content: '{"new1": {"text": "exam on friday", "reason": "big deal"}}' });
     await process();
     expect(fake.jevRequests[1]!.state).toContain("Kitsikai's pins are full (1). She wants to pin: \"exam on friday\"");
@@ -418,7 +418,7 @@ describe("processing", () => {
     app.store.updateSettings({ pinCap: 1 });
     addPin("old thing");
     const note = addNote({ kind: "remember", text: "exam on friday" });
-    fake.jevReplies.push({ n1: "yes", "n1.pin": "yes" }, { drop: { selected: "p1", p: 0.5 } });
+    fake.jevReplies.push({ n1: "yes", "n1_pin": "yes" }, { drop: { selected: "p1", p: 0.5 } });
     fake.replies.push({ content: '{"new1": {"text": "exam on friday"}}' });
     const { log } = await process();
     expect(memory().pins().map((p) => p.text)).toEqual(["old thing"]);
@@ -446,9 +446,9 @@ describe("processing", () => {
     const exam = addPin("exam on friday");
     addPin("new manager");
     const note = addNote({ kind: "request", text: "let go of: the exam", yours: true, request: "unpin" });
-    fake.jevReplies.push({ n1: "yes", "n1.which": "p1" });
+    fake.jevReplies.push({ n1: "yes", "n1_which": "p1" });
     const { log } = await process();
-    expect(fake.jevRequests[0]!.questions.find((q) => q.id === "n1.which")!.options).toEqual(["p1", "p2", "none of these"]);
+    expect(fake.jevRequests[0]!.questions.find((q) => q.id === "n1_which")!.options).toEqual(["p1", "p2", "none of these"]);
     expect(memory().getPin(exam.id)).toMatchObject({ status: "drawer", unpinReason: "they asked" });
     expect(memory().getNote(note.id).status).toBe("done");
     expect(log[0]).toMatchObject({ action: "unpinned", text: "exam on friday", reason: "they asked (95% sure)" });
@@ -457,7 +457,7 @@ describe("processing", () => {
   test("not sure which pin you meant: she asks", async () => {
     addPin("exam on friday");
     const note = addNote({ kind: "request", text: "let go of: that thing", yours: true, request: "unpin" });
-    fake.jevReplies.push({ n1: "yes", "n1.which": { selected: "p1", p: 0.5 } });
+    fake.jevReplies.push({ n1: "yes", "n1_which": { selected: "p1", p: 0.5 } });
     await process();
     expect(memory().getNote(note.id)).toMatchObject({ status: "asking", ask: "which pin they want you to let go of (let go of: that thing)" });
   });
@@ -489,7 +489,7 @@ describe("processing", () => {
     addPin("some pin");
     fake.jevReplies.push({ n1: "yes" });
     await app.processing.run("early");
-    expect(fake.jevRequests[0]!.questions.map((q) => q.id)).toEqual(["n1", "n1.pin"]);
+    expect(fake.jevRequests[0]!.questions.map((q) => q.id)).toEqual(["n1", "n1_pin"]);
     expect(memory().getNote(soon.id).status).toBe("bringup");
     expect(memory().getNote(other.id).status).toBe("open");
   });

@@ -393,7 +393,7 @@ describeUi("the app in a browser", () => {
     const { page, app, fake } = t;
     app.store.trackers.create({ name: "headache", kind: "scale" });
     await page.waitForFunction("eventSource && eventSource.readyState === 1");
-    fake.jevReplies.push({ t1: "yes", "t1.day": "today", "t1.level": "7" });
+    fake.jevReplies.push({ t1: "yes", "t1_day": "today", "t1_level": "7" });
     fake.replies.push({ content: "ugh noted 📌" });
     await page.fill("#composer-input", "my head is killing me, like a 7");
     await page.keyboard.press("Enter");

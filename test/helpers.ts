@@ -79,7 +79,7 @@ export function startFakeNanoGpt(): FakeNanoGpt {
 
       if (path === "/v1/chat/completions") {
         const body = (await request.json()) as Omit<FakeNanoGpt["requests"][number], "auth"> & {
-          response_format?: { type?: string; questions?: JevRequest["questions"] };
+          response_format?: { type?: string; questions?: unknown };
         };
         if (body.response_format?.type === "questions") return answerJev(fake, body);
         fake.requests.push({ ...body, auth: request.headers.get("authorization") });
@@ -134,23 +134,49 @@ export function startFakeNanoGpt(): FakeNanoGpt {
   return fake;
 }
 
-/** The fake Jev: answers every question, in one plausible reply layout. */
-function answerJev(fake: FakeNanoGpt, body: { model: string; messages: ChatMessage[]; response_format?: { questions?: JevRequest["questions"] } }) {
-  const request: JevRequest = { model: body.model, state: body.messages[0]?.content ?? "", questions: body.response_format?.questions ?? [] };
+/** A question as the fake Jev receives it: TypeSafe's shape, in a map keyed by id. */
+interface JevWireQuestion {
+  type: string;
+  instructions: string;
+  criteria: Record<string, string>;
+}
+
+/**
+ * The fake Jev: checks the request has TypeSafe's shape (like nanoGPT does),
+ * and answers every question in TypeSafe's format:
+ * `{"answers": {"q1": {"type": "choice", "choice": "yes", "probabilities": {...}, "confidence": 0.95}}}`.
+ */
+function answerJev(fake: FakeNanoGpt, body: { model: string; messages: ChatMessage[]; response_format?: { questions?: unknown } }) {
+  const wire = body.response_format?.questions;
+  // The error nanoGPT really sends for a list, or an empty map.
+  if (!wire || typeof wire !== "object" || Array.isArray(wire) || Object.keys(wire).length === 0) {
+    return Response.json(
+      { error: { message: "Jev decision models require a non-empty questions map.", type: "invalid_request_error", param: "response_format.questions", code: "invalid_questions" } },
+      { status: 400 },
+    );
+  }
+  const questions = Object.entries(wire as Record<string, JevWireQuestion>).map(([id, q]) => ({
+    id,
+    question: q.instructions,
+    options: Object.keys(q.criteria ?? {}),
+  }));
+  const request: JevRequest = { model: body.model, state: body.messages[0]?.content ?? "", questions };
   fake.jevRequests.push(request);
   const reply = fake.jevReplies.shift() ?? fake.jev?.(request) ?? {};
   if ("status" in reply && typeof reply.status === "number") {
     return Response.json({ error: { message: reply.error } }, { status: reply.status });
   }
   const given = reply as Record<string, string | { selected: string; p: number }>;
-  const answers = request.questions.map((q) => {
-    const answer = given[q.id];
-    const selected = typeof answer === "object" ? answer.selected : (answer ?? q.options.at(-1)!);
-    const p = typeof answer === "object" ? answer.p : 0.95;
-    const others = q.options.filter((o) => o !== selected);
-    const probabilities = Object.fromEntries(q.options.map((o) => [o, o === selected ? p : (1 - p) / others.length]));
-    return { id: q.id, selected, probabilities };
-  });
+  const answers = Object.fromEntries(
+    questions.map((q) => {
+      const answer = given[q.id];
+      const choice = typeof answer === "object" ? answer.selected : (answer ?? q.options.at(-1)!);
+      const p = typeof answer === "object" ? answer.p : 0.95;
+      const others = q.options.filter((o) => o !== choice);
+      const probabilities = Object.fromEntries(q.options.map((o) => [o, o === choice ? p : (1 - p) / others.length]));
+      return [q.id, { type: "choice", choice, probabilities, confidence: p }];
+    }),
+  );
   return Response.json({
     model: body.model,
     choices: [{ message: { role: "assistant", content: JSON.stringify({ answers }) }, finish_reason: "stop" }],

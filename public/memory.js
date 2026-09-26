@@ -1,6 +1,7 @@
 /**
  * Her memory in the app (stage 7): "Test Jev" in settings, and the advanced
- * page, "Kitsikai's notes".
+ * page, "Kitsikai's notes". From stage 8 the page also shows texting first:
+ * due reminders, what her snapshot checks decided and why, and "Check now".
  *
  * The advanced page shows her scratchpad notes, her pins with their reasons,
  * the drawer of pins she's taken down, and the processing log: what was
@@ -20,6 +21,10 @@
 const notesPage = {
   /** The last GET /api/memory. */
   data: null,
+  /** The last GET /api/proactive (stage 8). */
+  proactive: null,
+  /** What "Check now" last found, shown until the page is closed. */
+  lastCheck: null,
 };
 
 /** How each action reads in the log. */
@@ -75,14 +80,16 @@ async function testJevButton() {
 
 async function openNotes() {
   hideFormError($("notes-dialog"));
+  notesPage.lastCheck = null;
   $("notes-dialog").showModal();
   await loadNotes();
 }
 
 async function loadNotes() {
   try {
-    notesPage.data = await api("GET", "/api/memory");
+    [notesPage.data, notesPage.proactive] = await Promise.all([api("GET", "/api/memory"), api("GET", "/api/proactive")]);
     renderNotes();
+    renderProactive();
   } catch (error) {
     showFormError($("notes-dialog"), error.message);
   }
@@ -243,9 +250,117 @@ function updateAdvanced() {
   $("open-notes").hidden = !$("setting-show-advanced").checked;
 }
 
+// ---------------------------------------------------------- texting first
+
+const OUTCOME_WORDS = {
+  sent: "Texted first",
+  queued: "Queued a reminder",
+  waiting: "Waiting",
+  declined: "Chose not to",
+  nothing: "Nothing",
+  error: "Problem",
+};
+const REASON_WORDS = { reminder: "a reminder", checkin: "a check-in after work", followup: "a follow-up", "just-because": "just because" };
+const REMINDER_STATUS = { sent: "Sent", skipped: "Skipped", queued: "Queued" };
+
+/** The advanced page's texting-first section (stage 8). */
+function renderProactive() {
+  const data = notesPage.proactive;
+  if (!data) return;
+  const section = $("notes-proactive");
+  const children = [element("h3", "section-title", "Texting first")];
+  const status = [
+    data.lastCheckAt ? `Last check: ${memoryTime(data.lastCheckAt)}. Next: ${memoryTime(data.nextCheckAt)}.` : "No check since the server started.",
+  ];
+  if (!state.settings.textFirst) status.push("Texting first is off in Settings.");
+  if (!data.notificationsAvailable) status.push("Notifications aren't available on this device.");
+  children.push(...status.map((text) => element("p", "hint", text)));
+  if (notesPage.lastCheck) {
+    const found = element("p", "proactive-check-result", `${OUTCOME_WORDS[notesPage.lastCheck.outcome]}: ${notesPage.lastCheck.detail}`);
+    found.dataset.outcome = notesPage.lastCheck.outcome;
+    children.push(found);
+  }
+
+  children.push(element("div", "memory-round-title", "Reminders due now"));
+  if (data.due.length) {
+    const list = element("ol", "memory-log");
+    list.append(
+      ...data.due.map((r) => {
+        const line = element("li", "memory-log-line reminder-due");
+        line.append(element("span", "memory-log-text", `${r.text} (${r.label.toLowerCase()})`));
+        if (r.queuedIn) line.append(element("span", "memory-log-reason", " queued: she'll mention it in the conversation"));
+        return line;
+      }),
+    );
+    children.push(list);
+  } else {
+    children.push(element("p", "memory-empty", "None."));
+  }
+
+  children.push(element("div", "memory-round-title", "Recent checks"));
+  if (data.log.length) {
+    const list = element("ol", "memory-log");
+    list.append(
+      ...data.log.map((entry) => {
+        const line = element("li", "memory-log-line proactive-line");
+        line.dataset.outcome = entry.outcome;
+        line.append(element("span", "memory-log-action", `${OUTCOME_WORDS[entry.outcome]}${entry.reason ? ` (${REASON_WORDS[entry.reason]})` : ""}`));
+        line.append(element("span", "memory-log-text", ` ${memoryTime(entry.createdAt)}: ${entry.detail}`));
+        if (entry.messageId) {
+          line.append(" ");
+          line.append(sourceLink(entry.messageId));
+        }
+        return line;
+      }),
+    );
+    children.push(list);
+  } else {
+    children.push(element("p", "memory-empty", "Nothing yet. Checks that find nothing to ask about aren't kept."));
+  }
+
+  if (data.reminders.length) {
+    children.push(element("div", "memory-round-title", "Reminders"));
+    const list = element("ol", "memory-log");
+    list.append(
+      ...data.reminders.map((r) => {
+        const line = element("li", "memory-log-line reminder-record");
+        line.dataset.status = r.status;
+        line.append(element("span", "memory-log-action", REMINDER_STATUS[r.status]));
+        line.append(element("span", "memory-log-text", ` ${r.text}`));
+        if (r.reason) line.append(element("span", "memory-log-reason", ` (${r.reason})`));
+        if (r.messageId) {
+          line.append(" ");
+          line.append(sourceLink(r.messageId));
+        }
+        return line;
+      }),
+    );
+    children.push(list);
+  }
+  section.replaceChildren(...children);
+}
+
+/** "Check now": run her snapshot check straight away, and show what it decided. */
+async function checkNow() {
+  const button = $("check-now");
+  button.disabled = true;
+  button.textContent = "Checking…";
+  try {
+    const { check } = await api("POST", "/api/proactive/check", {});
+    notesPage.lastCheck = check;
+    await loadNotes();
+  } catch (error) {
+    showFormError($("notes-dialog"), error.message);
+  } finally {
+    button.textContent = "Check now";
+    button.disabled = false;
+  }
+}
+
 // ------------------------------------------------------------- wiring
 
 $("test-jev").addEventListener("click", testJevButton);
 $("open-notes").addEventListener("click", openNotes);
 $("process-now").addEventListener("click", processNow);
+$("check-now").addEventListener("click", checkNow);
 $("setting-show-advanced").addEventListener("change", updateAdvanced);

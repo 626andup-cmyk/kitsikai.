@@ -52,23 +52,25 @@ export type ServerEvent =
 const KEEPALIVE_MS = 25_000;
 
 export class Events {
-  /** One writer per open connection. */
+  /** Everyone listening: one writer per open app, plus the server's own listeners. */
   private readonly listeners = new Set<(event: ServerEvent) => void>();
+  /** How many apps have the events stream open. */
+  private streams = 0;
 
   /** Tell every open app about something. */
   publish(event: ServerEvent): void {
     for (const listener of this.listeners) listener(event);
   }
 
-  /** Listen from code (used by tests). Returns a function that stops listening. */
+  /** Listen from code (tests, and notifications). Returns a function that stops listening. */
   listen(listener: (event: ServerEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /** How many apps are connected right now. */
+  /** How many apps are connected right now (the server's own listeners don't count). */
   get connections(): number {
-    return this.listeners.size;
+    return this.streams;
   }
 
   /**
@@ -88,9 +90,14 @@ export class Events {
           }
         };
         const unlisten = this.listen((event) => send(`data: ${JSON.stringify(event)}\n\n`));
+        this.streams++;
         // A comment (a line starting with ":") keeps the connection alive.
         const keepalive = setInterval(() => send(": keepalive\n\n"), KEEPALIVE_MS);
+        let stopped = false;
         stop = () => {
+          if (stopped) return;
+          stopped = true;
+          this.streams--;
           unlisten();
           clearInterval(keepalive);
         };

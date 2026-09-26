@@ -58,6 +58,10 @@
  *   POST   /api/processing/run            Process her notes now ("Process now", for testing)
  *   POST   /api/jev/test                  Ask Jev one tiny question, to see if it's reachable and understood
  *
+ *   GET    /api/proactive                 Texting first: due reminders, what her checks decided, what's next
+ *   POST   /api/proactive/check           Run her snapshot check now ("Check now", for testing)
+ *   POST   /api/presence                  The app says whether it's on screen (for notifications)
+ *
  *   GET    /api/messages/:id              One message (to show where a log entry came from)
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
@@ -95,6 +99,9 @@ import { AlreadyProcessingError, Processing } from "./processing.ts";
 import { Replies } from "./replies.ts";
 import { Scheduler } from "./scheduler.ts";
 import { Scratchpad } from "./scratchpad.ts";
+import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
+import { Proactive } from "./proactive.ts";
+import { dueReminders } from "./reminders.ts";
 import { daysBetween, isDate, mondayOf } from "./dates.ts";
 import { DEFAULT_REMINDERS, REMINDER_LABELS } from "./planner.ts";
 import { checkRows, IMAGE_TYPES, MAX_IMAGE_BASE64, readSchedule, rowsFromRequest, saveRows } from "./screenshot.ts";
@@ -129,6 +136,8 @@ export class HttpError extends Error {
 export interface AppOptions {
   /** What time it is. Tests pass a fake clock. */
   now?: () => Date;
+  /** Posts phone notifications (stage 8). Tests pass a fake one. */
+  notifier?: Notifier;
 }
 
 /** The pieces a running app is made of, returned so tests can reach into them. */
@@ -150,6 +159,11 @@ export interface App {
   processing: Processing;
   /** What runs on a timer (src/scheduler.ts). Only the real server starts it. */
   scheduler: Scheduler;
+  /** Her snapshot check: texting first (src/proactive.ts). */
+  proactive: Proactive;
+  /** Whether the app is on screen, for notifications (src/notify.ts). */
+  presence: Presence;
+  notifier: Notifier;
 }
 
 /**
@@ -217,7 +231,7 @@ export function appVersion(publicDir: string): string {
  */
 export function createApp(config: Config, options: AppOptions = {}): App {
   const now = options.now ?? (() => new Date());
-  const store = new Store(config.dataDir);
+  const store = new Store(config.dataDir, now);
   const api: ApiOptions = {
     apiKey: config.apiKey,
     baseUrl: config.apiBaseUrl,
@@ -240,8 +254,30 @@ export function createApp(config: Config, options: AppOptions = {}): App {
   });
   const scratchpad = new Scratchpad({ store, api, decider, events, clock: now });
   const processing = new Processing({ store, api, decider, events, clock: now });
-  const scheduler = new Scheduler(store, processing, now);
   const replies = new Replies(store, kitsikai, events, scratchpad);
+  // Stage 8: texting first, and notifications.
+  const proactive = new Proactive({ store, api, decider, events, clock: now, kitsikai, replies });
+  const scheduler = new Scheduler(store, processing, now, proactive);
+  const presence = new Presence();
+  const appHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
+  const notifier = options.notifier ?? new TermuxNotifier(`http://${appHost}:${config.port}`);
+
+  // Whenever she writes (a reply, or texting first): did she mention a due
+  // reminder? And if the app isn't on screen, a notification.
+  events.listen((event) => {
+    if (event.type !== "messages") return;
+    const hers = event.messages.filter((m) => m.author === "kitsikai");
+    if (hers.length === 0) return;
+    proactive.noticeTurn(event.channelId, hers);
+    const settings = store.getSettings();
+    if (!settings.notifications || presence.isVisible(events.connections) || !notifier.available()) return;
+    try {
+      const channel = store.getChannel(event.channelId);
+      notifier.notify({ title: `${settings.name} in #${channel.name}`, text: hers.map((m) => m.content).join("\n"), channelId: channel.id });
+    } catch {
+      // The channel was deleted meanwhile: nothing to notify about.
+    }
+  });
   const version = appVersion(config.publicDir);
   const themes = new ThemeLibrary(
     config.themesDir,
@@ -293,6 +329,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
           appVersion: version,
           // For the planner's plan editor.
           planner: { defaultReminders: DEFAULT_REMINDERS, reminderLabels: REMINDER_LABELS },
+          // Whether this device can post notifications (Termux:API).
+          notificationsAvailable: notifier.available(),
         }),
     },
     {
@@ -670,6 +708,37 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       handler: async () => json({ test: await testJev(decider) }),
     },
 
+    // ---------------------------------------------------- texting first
+    {
+      method: "GET",
+      pattern: "/api/proactive",
+      handler: () =>
+        json({
+          due: dueReminders(store, now()).map((r) => ({ key: r.key, text: r.text, label: r.reminder.label, at: r.at, queuedIn: r.queuedIn })),
+          reminders: store.reminders.recent(30),
+          log: store.proactiveLog.recent(50),
+          lastCheckAt: proactive.lastCheckAt?.toISOString() ?? null,
+          nextCheckAt: scheduler.nextCheckAt().toISOString(),
+          running: proactive.isRunning(),
+          notificationsAvailable: notifier.available(),
+        }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/proactive/check",
+      handler: async () => json({ check: await proactive.check("manual") }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/presence",
+      handler: async (request) => {
+        const body = await readObject(request);
+        if (typeof body.visible !== "boolean") throw new HttpError(400, '"visible" must be true or false.');
+        presence.set(body.visible);
+        return json({ ok: true });
+      },
+    },
+
     // ---------------------------------------------------------- messages
     {
       method: "GET",
@@ -830,7 +899,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
   }
 
-  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler };
+  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler, proactive, presence, notifier };
 }
 
 /** Turn a thrown error into the right JSON error response. */
@@ -961,8 +1030,10 @@ function main(): void {
     idleTimeout: 0,
   });
 
-  // Processing her notes every few hours (and, from stage 8, texting first).
+  // Processing her notes every few hours, and her snapshot check (texting first).
   app.scheduler.start();
+  // On a phone: keep Termux awake, so she can text first while it's locked.
+  keepAwake();
 
   console.log(`Kitsikai is running at http://${server.hostname}:${server.port}`);
   console.log(`Saving your data in ${config.dataDir}`);

@@ -178,7 +178,7 @@ describe("events", () => {
   });
 
   test("stream to the app as Server-Sent Events", async () => {
-    const before = app.events.connections; // this test's own listener
+    const before = app.events.connections; // listeners from code (like this test's) don't count
     const response = await app.fetch(new Request("http://localhost/api/events"));
     expect(response.headers.get("content-type")).toBe("text/event-stream");
     const reader = response.body!.getReader();

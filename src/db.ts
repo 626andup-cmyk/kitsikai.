@@ -336,6 +336,48 @@ export const MIGRATIONS: Migration[] = [
     seq        INTEGER NOT NULL
   );
   `,
+
+  // ---------------------------------------------------------------- 7
+  // Stage 8: texting first. Which reminders went out (so each goes once),
+  // on-call shifts you've been called in to, and a log of her snapshot
+  // checks: what she decided, and why.
+  `
+  CREATE TABLE reminders_sent (
+    -- planId:date:reminderId, one per reminder of each occurrence.
+    key        TEXT PRIMARY KEY,
+    plan_id    TEXT NOT NULL,
+    text       TEXT NOT NULL,
+    -- 'queued': routed into the conversation you're having, not mentioned yet.
+    status     TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'skipped')),
+    channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
+    message_id TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    reason     TEXT NOT NULL DEFAULT '',
+    due_at     TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- On-call occurrences (planId:date) you got called in to. Busy until you
+  -- say you're done (done_at) or the on-call window ends.
+  CREATE TABLE called_in (
+    key       TEXT PRIMARY KEY,
+    called_at TEXT NOT NULL,
+    done_at   TEXT
+  );
+
+  CREATE TABLE proactive_log (
+    id         TEXT PRIMARY KEY,
+    trigger    TEXT NOT NULL CHECK (trigger IN ('timer', 'manual')),
+    outcome    TEXT NOT NULL CHECK (outcome IN ('sent', 'queued', 'waiting', 'declined', 'nothing', 'error')),
+    reason     TEXT CHECK (reason IN ('reminder', 'checkin', 'followup', 'just-because')),
+    channel_id TEXT REFERENCES channels (id) ON DELETE SET NULL,
+    message_id TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    detail     TEXT NOT NULL DEFAULT '',
+    -- For check-ins: the work block, so each block gets one.
+    key        TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX proactive_log_by_time ON proactive_log (created_at);
+  `,
 ];
 
 /**

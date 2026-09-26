@@ -364,6 +364,46 @@
           path: keep the note, ask you, leave the pin up.
         </p>
 
+        <h3 class="section-title">Texting first</h3>
+        <label class="check-option">
+          <input type="checkbox" name="textFirst" id="setting-text-first" />
+          <span
+            ><strong>She can text first</strong><br /><span class="hint"
+              >Reminders, "how'd work go?", following up, or just because. Usually she doesn't. Off: she only ever
+              replies.</span
+            ></span
+          >
+        </label>
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setting-snapshot-minutes">Check every (minutes)</label>
+            <input id="setting-snapshot-minutes" name="snapshotMinutes" type="number" min="1" max="240" step="1" />
+          </div>
+          <div>
+            <label for="setting-double-text-cap">Texts in a row without a reply</label>
+            <select id="setting-double-text-cap" name="doubleTextCap">
+              <option value="judge">Let her judge</option>
+              <option value="1">1 at most</option>
+              <option value="2">2 at most</option>
+              <option value="3">3 at most</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">
+          "Let her judge" asks Jev each time whether another text would feel natural or pushy. A number is a hard wall:
+          once she's texted first that many times without a reply, she waits. Reminders ignore it.
+        </p>
+        <label class="check-option">
+          <input type="checkbox" name="notifications" id="setting-notifications" />
+          <span
+            ><strong>Notifications</strong><br /><span class="hint"
+              >Her messages as phone notifications while the app isn't open. Tap one to open that channel.</span
+            ><span class="hint" id="notifications-unavailable" hidden
+              ><br />⚠️ Not available here: they need Termux with the Termux:API app (see the README).</span
+            ></span
+          >
+        </label>
+
         <h3 class="section-title">Advanced</h3>
         <label class="check-option">
           <input type="checkbox" name="showAdvanced" id="setting-show-advanced" />
@@ -973,6 +1013,7 @@
       <div class="notes-status" id="notes-status"></div>
       <div class="dialog-buttons notes-actions">
         <span class="spacer"></span>
+        <button type="button" class="button" id="check-now">Check now</button>
         <button type="button" class="button" id="process-now">Process now</button>
       </div>
       <section class="notes-section" id="notes-pins"></section>
@@ -985,6 +1026,7 @@
         <ol class="memory-list" id="notes-drawer"></ol>
       </details>
       <section class="notes-section" id="notes-log"></section>
+      <section class="notes-section" id="notes-proactive"></section>
       <p class="form-error" role="alert" hidden></p>
       <div class="dialog-buttons">
         <span class="spacer"></span>

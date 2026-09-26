@@ -23,7 +23,7 @@
  *   - you sending a message         (stage 1)
  *   - you pressing "Her turn"       (stage 1)
  *   - you asking for a regeneration (stage 1)
- *   - a timer or an event           (stage 8: she texts first)
+ *   - a timer or an event           (stage 8: she texts first, src/proactive.ts)
  *
  * The turn itself only ever looks at what's already saved: it reads the
  * channel, builds the prompt stack, asks the model, and saves the reply. It
@@ -34,6 +34,7 @@
 import { todayAndTomorrow } from "./binder.ts";
 import { splitBubbles } from "./bubbles.ts";
 import { memoryForPrompt } from "./memory.ts";
+import { dueReminders, remindersForPrompt } from "./reminders.ts";
 import type { Events } from "./events.ts";
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
 import { parseExtraParams } from "./profiles.ts";
@@ -53,8 +54,9 @@ export const MAX_ROUNDS = 6;
  *   last bubble (see src/replies.ts).
  * - `"continue"`: the "Her turn" button, or "Try again".
  * - `"regenerate"`: replacing her last reply.
+ * - `"proactive"`: she's texting first (stage 8, src/proactive.ts).
  */
-export type TurnTrigger = "user-message" | "continue" | "regenerate";
+export type TurnTrigger = "user-message" | "continue" | "regenerate" | "proactive";
 
 /** Extra options for a turn. */
 export interface TurnOptions {
@@ -67,6 +69,8 @@ export interface TurnOptions {
   replacing?: string[];
   /** Write with this connection profile instead of the channel's assignment ("Regenerate with..."). */
   profileId?: string;
+  /** Why she's texting first, for the prompt (stage 8). Never saved or shown. */
+  note?: string;
 }
 
 /** Everything one turn produced. */
@@ -107,6 +111,8 @@ export interface PromptOptions {
   profile?: Profile;
   /** The time "now" (tests pass their own). */
   now?: Date;
+  /** Why she's texting first (stage 8). */
+  note?: string;
 }
 
 /**
@@ -125,6 +131,8 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     .filter((m) => !excluded.has(m.id))
     .slice(-settings.historyLimit);
   const now = options.now ?? new Date();
+  // On-call shifts you've been called in to count as work (stage 8).
+  const calledIn = store.reminders.calledIn();
   return buildPromptStack({
     settings,
     channel,
@@ -132,8 +140,10 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     messages,
     now,
     modelNotes: options.profile?.quirkPrompt,
-    todayAndTomorrow: todayAndTomorrow(store, now),
+    todayAndTomorrow: todayAndTomorrow(store, now, calledIn),
+    reminders: remindersForPrompt(dueReminders(store, now), channelId),
     memory: memoryForPrompt(store.memory, settings, now),
+    note: options.note,
     tools: options.profile?.supportsTools ?? false,
   });
 }
@@ -232,6 +242,7 @@ export class Kitsikai {
         excludeIds: options.replacing,
         profile,
         now,
+        note: options.note,
       });
       const context: ToolContext = { store: this.store, channel, now, events: this.events };
       const tools = profile.supportsTools ? toolSpecs() : [];

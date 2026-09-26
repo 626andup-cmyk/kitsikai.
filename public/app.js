@@ -22,7 +22,8 @@ const state = {
   /**
    * App-wide settings: name, userName, persona, chatAssignment, historyLimit,
    * appTheme, themeOptions, homeChannelId, replyDebounceSeconds,
-   * typingBaseMs, typingPerCharMs.
+   * typingBaseMs, typingPerCharMs, her memory (stage 7) and texting first
+   * (stage 8). See `Settings` in src/types.ts.
    */
   settings: null,
   /** Every channel, in sidebar order: {id, name, kind, topic, theme, assignment, position}. */
@@ -64,6 +65,8 @@ const state = {
   editingTheme: null,
   /** Fingerprint of the app's files when this page loaded (see `checkForUpdate`). */
   appVersion: null,
+  /** Whether the server can post phone notifications (Termux:API, stage 8). */
+  notificationsAvailable: false,
 };
 
 // Shortcut for looking up elements by id.
@@ -153,6 +156,7 @@ async function loadState() {
   state.profiles = data.profiles;
   state.roulettes = data.roulettes;
   state.busy = new Set(data.busyChannels);
+  state.notificationsAvailable = data.notificationsAvailable;
   state.planner = data.planner;
   state.appVersion ??= data.appVersion;
   checkForUpdate(data.appVersion);
@@ -645,6 +649,7 @@ function connectEvents() {
   eventSource.addEventListener("open", () => {
     if (connectedBefore) catchUp();
     connectedBefore = true;
+    reportPresence();
   });
   eventSource.addEventListener("message", (event) => {
     let data;
@@ -1690,6 +1695,12 @@ function openSettings() {
   form.processingHours.value = s.processingHours;
   form.pinCap.value = s.pinCap;
   form.showAdvanced.checked = s.showAdvanced;
+  // Texting first (stage 8).
+  form.textFirst.checked = s.textFirst;
+  form.snapshotMinutes.value = s.snapshotMinutes;
+  form.doubleTextCap.value = String(s.doubleTextCap);
+  form.notifications.checked = s.notifications;
+  $("notifications-unavailable").hidden = state.notificationsAvailable;
   $("jev-test-result").hidden = true;
   updateAdvanced();
   hideFormError(els.settingsForm);
@@ -1720,6 +1731,10 @@ async function saveSettings(event) {
       processingHours: Number(form.processingHours.value),
       pinCap: Number(form.pinCap.value),
       showAdvanced: form.showAdvanced.checked,
+      textFirst: form.textFirst.checked,
+      snapshotMinutes: Number(form.snapshotMinutes.value),
+      doubleTextCap: form.doubleTextCap.value === "judge" ? "judge" : Number(form.doubleTextCap.value),
+      notifications: form.notifications.checked,
     });
     state.settings = data.settings;
     els.settingsDialog.close();
@@ -2376,7 +2391,24 @@ $("update-reload").addEventListener("click", () => location.reload());
 // anything missed while it sat in the background, and check for an update.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") catchUp();
+  reportPresence();
 });
+
+/**
+ * Tell the server whether the app is on screen (stage 8): it only posts
+ * phone notifications while it isn't. Best effort: if this fails, the
+ * worst case is a notification you didn't need.
+ */
+function reportPresence() {
+  const visible = document.visibilityState === "visible";
+  // Going into the background, the page may be paused straight away:
+  // sendBeacon is made for that, and still delivers.
+  if (!visible && navigator.sendBeacon) {
+    navigator.sendBeacon("/api/presence", new Blob([JSON.stringify({ visible })], { type: "application/json" }));
+    return;
+  }
+  api("POST", "/api/presence", { visible }).catch(() => {});
+}
 els.errorRetry.addEventListener("click", () => state.retry && state.retry());
 $("error-dismiss").addEventListener("click", hideError);
 

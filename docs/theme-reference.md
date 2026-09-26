@@ -164,6 +164,7 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.log-sticker` | A sticker. Has `data-kind`, `data-value` and `data-source` (`user`, `processing`, `confirmed`). |
 | `.calendar-stickers`, `.day-panel-stickers`, `.day-stickers-title`, `.day-stickers`, `.day-sticker-add` | Stickers on calendar days: dots in the grid, and the day panel's list |
 | `.message.highlighted` | A message you jumped to |
+| `.shift-chip.overnight`, `.plan-card-stay`, `.shift-row-stay`, `.plan-overnight`, `.review-overnight` | Linked shifts: 🏨 on the calendar chip, the hotel-night line on a card and in the weekly list (`.unlinked` when there's no shift to link to), and the checkbox in the plan editor and review list |
 | `.memory-grid`, `.jev-test-result` | Her memory settings, and what Test Jev got back (`.ok` or `.failed`) |
 | `.notes-page`, `.notes-status`, `.notes-actions`, `.notes-section`, `.notes-drawer`, `.memory-list`, `.memory-empty` | The advanced page, "Kitsikai's notes" |
 | `.memory-card`, `.memory-card-text`, `.memory-card-fact`, `.memory-source` | A pin or note, and its "show the message" link |

@@ -120,10 +120,19 @@ function reviewRow(row, index) {
     scheduleCheck();
   });
 
+  // A hotel night after this shift: a screenshot can't show it, so it's ticked here.
+  const overnight = document.createElement("label");
+  overnight.className = "check-inline review-overnight";
+  const overnightBox = document.createElement("input");
+  overnightBox.type = "checkbox";
+  overnightBox.checked = Boolean(row.overnight);
+  overnightBox.addEventListener("change", () => editRow(index, { overnight: overnightBox.checked }));
+  overnight.append(overnightBox, " 🏨 Overnight after (linked to the next shift)");
+
   const notes = document.createElement("div");
   notes.className = "review-notes";
 
-  element.append(day, type, hours, draw, drawTime, remove, notes);
+  element.append(day, type, hours, draw, drawTime, remove, overnight, notes);
   showRowChecks(element, row);
   return element;
 }

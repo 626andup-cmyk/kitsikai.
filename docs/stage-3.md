@@ -95,6 +95,16 @@ A plan is anything planned (see `Plan` in `src/types.ts`). Shifts and events are
 
 `validatePlan` checks a whole plan as it would be saved, and clears fields that don't apply (a birthday has no shift type; a meeting has no draw hours). Changing a plan runs the same check on the merged result, so a plan can never be saved half-valid.
 
+## Linked shifts: hotel nights
+
+Some shifts are **linked**: you stay away overnight, in a hotel, between two or more shifts. A screenshot can't show that, so it's set by hand: tick **🏨 Overnight after this shift** in the plan editor (or on a row of the screenshot review list). On a trip of several shifts, tick it on each one but the last.
+
+A shift marked overnight links to **the next shift that starts within two days** of it ending (`overnightStay` in `src/planner.ts`, worked out on every occurrence like draw time, so it can't go stale). Nothing new is stored but the tick itself:
+
+- The calendar shows 🏨 on the shift, and its card and weekly-list row say "🏨 Hotel night, then Tue 9/29 7:00a". If there's no shift in the next two days, it says so, in red: probably a missing shift, or a tick on the wrong day.
+- The hotel night isn't work: it doesn't count as busy, and doesn't change week totals.
+- She's told (stage 6's "Today and tomorrow" and her lookups): the shift line ends "then a hotel night: staying away until the next shift", and between the two shifts she knows you're **away**: "staying at a hotel between shifts: not at work, and not home".
+
 ## Reminders
 
 Each kind has default reminders (`DEFAULT_REMINDERS`), changeable per plan in the editor ("Remind me": the kind's default, your own choice, or none):

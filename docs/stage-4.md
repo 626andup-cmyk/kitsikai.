@@ -23,7 +23,7 @@ sequenceDiagram
 
 1. In the planner, **Import screenshot** and pick the picture.
 2. The **screenshot-reading profile** reads it.
-3. The **review list** shows what was read beside the screenshot: every shift with its day, shift type, shift hours, draw hours and draw time (calculated, greyed).
+3. The **review list** shows what was read beside the screenshot: every shift with its day, shift type, shift hours, draw hours and draw time (calculated, greyed). Each row also has a **🏨 Overnight after** box for linked shifts (a hotel night before the next shift), since a screenshot can't show that: it's ticked by hand, and warned about if there's no shift in the next two days to link to.
 4. Fix anything by tapping it. ⚠️ **Warnings never block**; they point out what's worth a second look.
 5. **Looks good, save** turns every row into a checked shift plan.
 

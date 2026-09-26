@@ -67,6 +67,11 @@ export function describeOccurrence(o: Occurrence, today?: LocalDate): string {
     parts.push(`${KIND_NAMES[plan.kind]}: ${plan.title}, ${time}`);
   }
   let line = parts.join(", ");
+  if (o.stay) {
+    line += o.stay.nextDate
+      ? `, then a hotel night: staying away until the next shift, ${dayName(o.stay.nextDate)}${o.stay.nextTime ? ` at ${shortTime(o.stay.nextTime)}` : ""}`
+      : ", then a hotel night (staying away overnight)";
+  }
   if (today && o.date !== today) line += ` (started ${dayName(o.date)})`;
   if (o.endDate && o.endDate !== o.date && !plan.startTime) line += `, until ${dayName(o.endDate)}`;
   if (plan.repeats !== "never") line += `, every ${plan.repeats === "weekly" ? "week" : "year"}`;
@@ -78,6 +83,7 @@ export function describeOccurrence(o: Occurrence, today?: LocalDate): string {
 /**
  * Whether you're at work right now, in words, or `null` if not. Regular
  * shifts and meetings count; on-call only once you're called in (stage 8).
+ * Between linked shifts, you're away: at a hotel, not at work.
  */
 export function workStatus(store: Store, now: Date, calledIn?: Set<string>): string | null {
   const today = dateOf(now);
@@ -85,6 +91,17 @@ export function workStatus(store: Store, now: Date, calledIn?: Set<string>): str
     .workBlocks(today, today, { calledIn })
     .find((b) => b.start <= now && now < b.end);
   if (block) return `They're at work right now, until ${formatClock(block.end)}.`;
+  const away = store.plans
+    .occurrences(addDays(today, -2), today, { calledIn })
+    .find((o) => {
+      if (!o.stay?.nextDate || !o.stay.nextTime || !o.endDate || !o.endTime) return false;
+      return toMoment(o.endDate, o.endTime) <= now && now < toMoment(o.stay.nextDate, o.stay.nextTime);
+    });
+  if (away) {
+    const next = toMoment(away.stay!.nextDate!, away.stay!.nextTime!);
+    const when = away.stay!.nextDate === today ? formatClock(next) : `${formatClock(next)} ${away.stay!.nextDate === addDays(today, 1) ? "tomorrow" : `on ${dayName(away.stay!.nextDate!)}`}`;
+    return `They're away overnight, staying at a hotel between shifts: not at work, and not home. Their next shift starts at ${when}.`;
+  }
   const onCall = store.plans
     .occurrences(addDays(today, -1), today, { calledIn })
     .find((o) => o.plan.shiftType === "oncall" && !o.busy && o.startTime && o.endDate && o.endTime && toMoment(o.date, o.startTime) <= now && now < toMoment(o.endDate, o.endTime));

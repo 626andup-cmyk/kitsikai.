@@ -28,7 +28,7 @@ import { ValidationError } from "./errors.ts";
 import { extractJson, JsonReplyError } from "./json.ts";
 import { profileRequest } from "./kitsikai.ts";
 import { ApiError, createChatCompletion, type ApiOptions } from "./nanogpt.ts";
-import { momentsOf, shiftFacts, SHIFT_TYPES } from "./planner.ts";
+import { LINK_HOURS, momentsOf, shiftFacts, SHIFT_TYPES } from "./planner.ts";
 import { describeNow } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import type { CheckedRow, Plan, Profile, ScreenshotRow, ShiftType } from "./types.ts";
@@ -122,6 +122,8 @@ export function parseScheduleReply(json: unknown, now: Date): ScreenshotRow[] {
       drawStart: normalizeTime(item.drawStart ?? item.draw_start),
       drawEnd: normalizeTime(item.drawEnd ?? item.draw_end),
       weekdayRead: normalizeWeekday(item.weekday),
+      // A screenshot can't show a hotel night: that's ticked by hand.
+      overnight: false,
     }));
 }
 
@@ -213,6 +215,13 @@ export function checkRows(rows: ScreenshotRow[], existing: Plan[], now: Date): C
   const seen = new Map<string, number>();
   for (const row of rows) seen.set(key(row), (seen.get(key(row)) ?? 0) + 1);
 
+  // When every shift starts, in the list and already saved: an "overnight"
+  // shift needs one within two days after it, to link to.
+  const starts = [
+    ...rows.filter((r) => r.date && r.startTime).map((r) => toMoment(r.date!, r.startTime)),
+    ...existing.filter((p) => p.kind === "shift" && p.startTime).map((p) => toMoment(p.startDate, p.startTime)),
+  ];
+
   return rows.map((row) => {
     const warnings: string[] = [];
     let error: string | null = null;
@@ -256,6 +265,11 @@ export function checkRows(rows: ScreenshotRow[], existing: Plan[], now: Date): C
       }
       if (Math.abs(daysBetween(today, row.date)) > FARTHEST_DAYS) warnings.push("This date is far from today. Check the year.");
     }
+    if (row.overnight && row.date && row.startTime && row.endTime && endDate) {
+      const end = toMoment(endDate, row.endTime);
+      const linked = starts.some((start) => start >= end && start.getTime() - end.getTime() <= LINK_HOURS * 3600_000);
+      if (!linked) warnings.push("Overnight after this shift, but there's no shift in the next two days to link it to.");
+    }
     if (saved.has(key(row))) warnings.push("This shift is already in the planner.");
     if ((seen.get(key(row)) ?? 0) > 1 && !error) warnings.push("This shift is in the list twice.");
 
@@ -279,6 +293,7 @@ function asPlan(row: ScreenshotRow, endDate: string | null): Plan {
     shiftType: row.shiftType,
     drawStart: row.shiftType === "regular" ? row.drawStart : null,
     drawEnd: row.shiftType === "regular" ? row.drawEnd : null,
+    overnight: row.overnight,
     notes: "",
     source: "screenshot",
     createdAt: "",
@@ -306,6 +321,7 @@ export function rowsFromRequest(value: unknown): ScreenshotRow[] {
       drawStart: isTime(raw.drawStart) ? raw.drawStart : null,
       drawEnd: isTime(raw.drawEnd) ? raw.drawEnd : null,
       weekdayRead: typeof raw.weekdayRead === "string" ? normalizeWeekday(raw.weekdayRead) : null,
+      overnight: raw.overnight === true,
     };
   });
 }

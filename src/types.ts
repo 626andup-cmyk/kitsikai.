@@ -280,6 +280,11 @@ export interface Plan {
   /** Regular shifts only: the draw hours. Draw time is always calculated from these, never stored. */
   drawStart: string | null;
   drawEnd: string | null;
+  /**
+   * Shifts only: you stay away overnight after this shift (a hotel night),
+   * linked to your next shift. Set by hand: a schedule screenshot can't tell.
+   */
+  overnight: boolean;
   notes: string;
   source: PlanSource;
   createdAt: string;
@@ -319,6 +324,16 @@ export interface Occurrence {
   /** Whether it counts as busy: regular shifts and meetings (and on-call, when called in). */
   busy: boolean;
   reminders: ReminderTime[];
+  /** A shift marked "overnight": the hotel night after it, until the linked shift. */
+  stay: OvernightStay | null;
+}
+
+/** The hotel night after an "overnight" shift. */
+export interface OvernightStay {
+  /** The next shift it links to (its occurrence key, day and start), or `null` if there's none within two days. */
+  nextKey: string | null;
+  nextDate: string | null;
+  nextTime: string | null;
 }
 
 /** A stretch of work: shifts that run into each other count as one. */
@@ -342,6 +357,8 @@ export interface ScreenshotRow {
   drawEnd: string | null;
   /** The weekday as written on the screenshot ("Mon"), to spot misread dates. */
   weekdayRead: string | null;
+  /** A hotel night after this shift, linked to the next: ticked by hand in the review list. */
+  overnight: boolean;
 }
 
 /** A row of the review list: what was read, what's calculated from it, and what looks wrong. */

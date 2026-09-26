@@ -1842,6 +1842,7 @@ button:disabled {
   grid-template-areas:
     "day type drawtime remove"
     "hours hours draw draw"
+    "overnight overnight overnight overnight"
     "notes notes notes notes";
   gap: 6px 10px;
   align-items: center;
@@ -1874,6 +1875,14 @@ button:disabled {
 
 .review-remove {
   grid-area: remove;
+}
+
+.review-overnight {
+  grid-area: overnight;
+}
+
+.review-row .review-overnight input {
+  width: auto;
 }
 
 .review-row.has-warnings {
@@ -1967,6 +1976,7 @@ button:disabled {
       "hours hours"
       "draw draw"
       "drawtime remove"
+      "overnight overnight"
       "notes notes";
   }
 
@@ -2441,4 +2451,19 @@ button:disabled {
   width: 100%;
   /* The card is already the input colour: stand out from it. */
   background: var(--dialog-bg);
+}
+
+/* Linked shifts: a hotel night after a shift, until the next one. */
+.shift-row-stay {
+  grid-column: 1 / -1;
+  color: var(--calculated-text);
+}
+
+.plan-card-stay.unlinked,
+.shift-row-stay.unlinked {
+  color: var(--error-text);
+}
+
+.plan-overnight {
+  margin-top: 10px;
 }

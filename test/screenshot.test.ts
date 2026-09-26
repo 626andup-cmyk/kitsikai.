@@ -23,6 +23,7 @@ function row(fields: Partial<ScreenshotRow>): ScreenshotRow {
     drawStart: "10:00",
     drawEnd: "14:00",
     weekdayRead: "Mon",
+    overnight: false,
     ...fields,
   };
 }

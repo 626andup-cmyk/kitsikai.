@@ -211,6 +211,40 @@ describeUi("the app in a browser", () => {
     expect(t.errors).toEqual([]);
   });
 
+  test("linked shifts: 'overnight after' shows the hotel night on the calendar, the day card and the weekly list", async () => {
+    const { page, app } = t;
+    // Tomorrow's shift, for today's to link to.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    app.store.plans.create({ kind: "shift", title: "Work", startDate: iso(tomorrow), startTime: "07:00", endTime: "15:00", checked: true });
+
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day");
+    await page.click("#planner-add");
+    await page.selectOption("#plan-kind", "shift");
+    await page.fill("#plan-start-time", "06:00");
+    await page.fill("#plan-end-time", "14:00");
+    await page.check('#plan-form input[name="overnight"]');
+    await page.click('#plan-form button[type="submit"]');
+    await page.waitForSelector(".shift-chip.overnight");
+    expect(await page.textContent(".shift-chip.overnight")).toBe("6:00a–2:00p 🏨");
+    const label = `${tomorrow.toLocaleDateString("en-US", { weekday: "short" })} ${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`;
+    expect(await page.textContent(".plan-card-stay")).toBe(`🏨 Hotel night, then ${label} 7:00a`);
+    expect(app.store.plans.list().filter((p) => p.overnight)).toHaveLength(1);
+
+    // Opening it again shows the box ticked.
+    await page.click(".plan-card-stay");
+    expect(await page.isChecked('#plan-form input[name="overnight"]')).toBe(true);
+    await page.click("#plan-dialog [data-close]");
+
+    await page.click('.planner-tab[data-view="week"]');
+    await page.waitForSelector(".shift-row-stay");
+    expect(await page.textContent(".shift-row-stay")).toBe(`🏨 Hotel night, then ${label} 7:00a`);
+    expect(t.errors).toEqual([]);
+  });
+
   test("the calendar's weeks start on Sunday", async () => {
     const { page } = t;
     await page.click('.channel-link:has-text("planner")');
@@ -286,15 +320,18 @@ describeUi("the app in a browser", () => {
     await page.waitForFunction("!document.querySelector(\".review-row[data-index='0'] .review-warning\")");
     expect(await page.textContent(".review-row[data-index='0'] .review-draw-time")).toBe("4h 30m draw");
 
+    // A hotel night after the first shift, linked to the second: ticked by hand.
+    await page.check(".review-row[data-index='0'] .review-overnight input");
+
     // Remove the meeting, then save.
     await page.click(".review-row[data-index='2'] .review-remove");
     expect(await page.textContent("#import-summary")).toBe("2 shifts");
     await page.click("#import-save");
     await page.waitForSelector("#import-dialog", { state: "hidden" });
     const plans = app.store.plans.list();
-    expect(plans.map((p) => [p.drawStart, p.source, p.checked])).toEqual([
-      ["10:00", "screenshot", true],
-      ["23:00", "screenshot", true],
+    expect(plans.map((p) => [p.drawStart, p.source, p.checked, p.overnight])).toEqual([
+      ["10:00", "screenshot", true, true],
+      ["23:00", "screenshot", true, false],
     ]);
     await page.waitForSelector(".shift-chip");
     expect(t.errors).toEqual([]);

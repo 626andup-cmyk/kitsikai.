@@ -143,6 +143,24 @@ async function api(method, path, body) {
   return data;
 }
 
+/**
+ * Plans, reminders and "today" all use the server's local time. On a phone,
+ * the Linux environment Bun runs in can be set to a different time zone
+ * than the phone itself (often UTC), which would put every plan hours off.
+ * So the app compares, once, and says how to fix it.
+ */
+let timeZoneChecked = false;
+function checkTimeZone(server) {
+  if (timeZoneChecked || !server) return;
+  timeZoneChecked = true;
+  if (server.offsetMinutes === new Date().getTimezoneOffset()) return;
+  const phone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  showNotice(
+    `Kitsikai's server is set to a different time zone (${server.zone}) than this phone (${phone}), so times would be off. ` +
+      `Add the line TZ=${phone} to the .env file and restart the server.`,
+  );
+}
+
 /** The API path for something in the open channel, e.g. channelPath("turn"). */
 function channelPath(suffix, channelId = state.channelId) {
   return `/api/channels/${encodeURIComponent(channelId)}/${suffix}`;
@@ -157,6 +175,7 @@ async function loadState() {
   state.roulettes = data.roulettes;
   state.busy = new Set(data.busyChannels);
   state.notificationsAvailable = data.notificationsAvailable;
+  checkTimeZone(data.clock);
   state.planner = data.planner;
   state.appVersion ??= data.appVersion;
   checkForUpdate(data.appVersion);

@@ -94,7 +94,10 @@ Still inside Debian (the `root@localhost` prompt):
 
    ```
    Kitsikai is running at http://127.0.0.1:3000
+   Time zone: America/Chicago (it's 4:12 PM here)
    ```
+
+   **Check that time.** If it isn't the time on your phone, Debian is using the wrong time zone (it often starts on UTC), and your plans would be hours off. To fix it: press **Ctrl+C** to stop the server, run `nano .env`, add a line with your time zone, like `TZ=America/Chicago` (it's a region and a city: `Europe/London`, `Asia/Manila`...), save, and run `bun start` again. The app also warns you if the time zones don't match, and tells you the exact line to add.
 
    **Leave Termux open** (you can switch to other apps, just don't close it).
 
@@ -141,6 +144,16 @@ From then on, starting Kitsikai is just:
 | Settings says notifications aren't available | Make sure Termux:API is installed from F-Droid, and that you started the server with the `--bind` command (or `./kitsikai.sh`). |
 | She stops texting first when the screen is off | Check Part 2 (battery: Unrestricted) and tap **Acquire wakelock** again. |
 | `bun: command not found` | Close Termux fully, open it, log in to Debian again (Part 3, step 4). |
+| The app says the server is in a different time zone, or plans show at the wrong time | Add the `TZ=` line the app suggests to `.env` (Part 5), and restart the server. |
+
+## Bringing over a chat from Lumiverse or SillyTavern
+
+If you've been talking to her somewhere else, export that chat (in Lumiverse or SillyTavern, the chat's menu → **Export**, as `.jsonl`), and save the file to your phone. Then in Kitsikai: ⚙ **Settings → Chat history → Import a chat…** and choose the file.
+
+- It shows a preview first: how many messages, from whom, and the dates. No message text is shown, and nothing is saved until you press **Import**.
+- It goes into a new channel (or an empty one), with the original dates.
+- **Let her catch up** (optional): her notes model reads the whole chat once and writes down what's still worth knowing, at most 10 notes. This sends the whole chat to that model, so pick one whose rules are fine with what's in it.
+- If the file can't be read, it shows the file's *layout* instead: field names only, no messages, so it's safe to copy and share when asking for help.
 
 ## Once it's running: setting her up
 

@@ -223,3 +223,35 @@ export function describeDraft(draft: PlanDraft): string {
   const time = draft.startTime ? ` at ${shortTime(draft.startTime)}${draft.endTime ? `–${shortTime(draft.endTime)}` : ""}` : "";
   return `${draft.title} on ${dayName(draft.startDate)}${time}`;
 }
+
+// ------------------------------------------------------------- catch-up
+
+const CATCH_UP_SYSTEM = `You help Kitsikai remember. She's reading back through an old chat with them (her friend), one part at a time, and keeping a short list of what's still worth knowing now: ongoing situations, things coming up, how they've been, what matters to them, things to check in about. Each note is short, specific, in plain words, about them. Never make things up: only what the chat says. Reply with JSON only.`;
+
+/**
+ * One step of a catch-up (src/catchup.ts): given the notes so far and the
+ * next part of an old chat, the updated list of what's still worth knowing.
+ *
+ * @throws ApiError, JsonReplyError if the writer can't be asked or read.
+ */
+export async function updateCatchUp(
+  api: ApiOptions,
+  profile: Profile,
+  known: string[],
+  part: string,
+  maxNotes: number,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const user = `What you've noted so far:
+${known.length ? known.map((n) => `- ${n}`).join("\n") : "(nothing yet)"}
+
+The next part of the chat (oldest first):
+${part}
+
+Update the list: add what matters from this part, drop what's settled or no longer true, and prefer what's recent. At most ${maxNotes} notes.
+
+Reply like: {"notes": ["...", "..."]}`;
+  const json = await askJson(api, profile, CATCH_UP_SYSTEM, user, signal);
+  const notes = Array.isArray(json.notes) ? json.notes : [];
+  return notes.map(text).filter(Boolean).slice(0, maxNotes);
+}

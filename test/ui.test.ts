@@ -424,6 +424,45 @@ describeUi("the app in a browser", () => {
     expect(t.errors).toEqual([]);
   });
 
+  test("importing a chat: a preview without text, then a new channel with the history", async () => {
+    const { page, app } = t;
+    const file = [
+      { user_name: "Sam", character_name: "Kitsikai" },
+      // Midday UTC: June 26 in any time zone the browser might be in.
+      { name: "Sam", is_user: true, send_date: "2026-06-26T12:00:00Z", mes: "hey you" },
+      { name: "Kitsikai", is_user: false, send_date: "2026-06-26T12:01:00Z", mes: "hiii<cht>how was work" },
+      { name: "System", is_user: false, is_system: true, mes: "hidden" },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n");
+    await page.click("#settings-button");
+    await page.click("#open-import-chat");
+    await page.setInputFiles("#import-chat-file", { name: "chat.jsonl", mimeType: "application/jsonl", buffer: Buffer.from(file) });
+    await page.waitForSelector("#import-chat-preview.ok");
+    expect(await page.$$eval("#import-chat-preview p", (nodes) => nodes.map((n) => n.textContent))).toEqual([
+      '2 messages: 1 from you (as "Sam"), 1 from her (as "Kitsikai").',
+      "From Jun 26, 2026 to Jun 26, 2026.",
+      "Left out: 1 hidden system messages.",
+    ]);
+    await page.fill('#import-chat-form input[name="newChannel"]', "old chat");
+    await page.click("#import-chat-submit");
+    await page.waitForSelector("#import-chat-dialog", { state: "hidden" });
+    await page.waitForSelector('#channel-name:has-text("old-chat")');
+    await page.waitForSelector('.message[data-author="kitsikai"] .message-content:has-text("how was work")');
+    expect(await page.$$eval(".message .message-content", (nodes) => nodes.map((n) => n.textContent))).toEqual(["hey you", "hiii", "how was work"]);
+    expect(await page.textContent("#notice-text")).toBe("Imported 3 messages into #old-chat.");
+    expect(app.store.listChannels().map((c) => c.name)).toContain("old-chat");
+
+    // A file it can't read shows its layout instead.
+    await page.click("#settings-button");
+    await page.click("#open-import-chat");
+    await page.setInputFiles("#import-chat-file", { name: "odd.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify([{ sender: "me", body: "hi" }])) });
+    await page.waitForSelector("#import-chat-preview.failed pre");
+    expect(await page.textContent("#import-chat-preview pre")).toBe("record 1: { sender: text, body: text }");
+    expect(await page.isDisabled("#import-chat-submit")).toBe(true);
+    expect(t.errors).toEqual([]);
+  });
+
   test("texting first: its settings save, and Check now texts a due reminder into the chat", async () => {
     const { page, app, fake } = t;
     // An appointment in an hour: its "2 hours before" reminder went off an hour ago.

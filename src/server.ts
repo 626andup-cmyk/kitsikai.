@@ -58,6 +58,10 @@
  *   POST   /api/processing/run            Process her notes now ("Process now", for testing)
  *   POST   /api/jev/test                  Ask Jev one tiny question, to see if it's reachable and understood
  *
+ *   GET    /api/import/targets            Empty text channels, where a chat can be imported
+ *   POST   /api/import/preview            Read a Lumiverse/SillyTavern chat export: counts, names, dates (no text)
+ *   POST   /api/import                    Import it into a new or empty channel (optionally, she catches up on it)
+ *
  *   GET    /api/proactive                 Texting first: due reminders, what her checks decided, what's next
  *   POST   /api/proactive/check           Run her snapshot check now ("Check now", for testing)
  *   POST   /api/presence                  The app says whether it's on screen (for notifications)
@@ -101,6 +105,8 @@ import { Scheduler } from "./scheduler.ts";
 import { Scratchpad } from "./scratchpad.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { Proactive } from "./proactive.ts";
+import { CatchUp } from "./catchup.ts";
+import { ImportError, importChat, MAX_IMPORT_CHARS, parseChat, previewOf, type ImportTarget } from "./importer.ts";
 import { dueReminders } from "./reminders.ts";
 import { daysBetween, isDate, mondayOf } from "./dates.ts";
 import { DEFAULT_REMINDERS, REMINDER_LABELS } from "./planner.ts";
@@ -161,6 +167,8 @@ export interface App {
   scheduler: Scheduler;
   /** Her snapshot check: texting first (src/proactive.ts). */
   proactive: Proactive;
+  /** Catching up on an imported chat (src/catchup.ts). */
+  catchUp: CatchUp;
   /** Whether the app is on screen, for notifications (src/notify.ts). */
   presence: Presence;
   notifier: Notifier;
@@ -259,6 +267,15 @@ export function createApp(config: Config, options: AppOptions = {}): App {
   const proactive = new Proactive({ store, api, decider, events, clock: now, kitsikai, replies });
   const scheduler = new Scheduler(store, processing, now, proactive);
   const presence = new Presence();
+  const catchUp = new CatchUp({ store, api, decider, events, clock: now });
+
+  /** A chat export from a request body, read (src/importer.ts). */
+  async function readChatExport(request: Request) {
+    const body = await readObject(request);
+    if (typeof body.text !== "string") throw new HttpError(400, '"text" must be the chat export, as text.');
+    if (body.text.length > MAX_IMPORT_CHARS) throw new HttpError(400, "The file is too big to import (30 MB at most).");
+    return { body, chat: parseChat(body.text, now()) };
+  }
   const appHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
   const notifier = options.notifier ?? new TermuxNotifier(`http://${appHost}:${config.port}`);
 
@@ -327,6 +344,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
           roulettes: store.profiles.listRoulettes(),
           busyChannels: kitsikai.busyChannels(),
           appVersion: version,
+          // The server's time zone: the app warns if it isn't the phone's.
+          clock: { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offsetMinutes: now().getTimezoneOffset() },
           // For the planner's plan editor.
           planner: { defaultReminders: DEFAULT_REMINDERS, reminderLabels: REMINDER_LABELS },
           // Whether this device can post notifications (Termux:API).
@@ -693,6 +712,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
             .slice(0, 100),
           processing: { running: processing.isRunning(), nextRunAt: scheduler.nextRunAt().toISOString(), every: settings.processingHours },
           jev: { model: settings.decisionModel, enabled: decider.enabled(), lastReport: decider.lastReport, checkError: scratchpad.lastError },
+          catchUp: catchUp.status(),
           pinCap: settings.pinCap,
         });
       },
@@ -706,6 +726,38 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       method: "POST",
       pattern: "/api/jev/test",
       handler: async () => json({ test: await testJev(decider) }),
+    },
+
+    // ------------------------------------------------------ importing
+    {
+      method: "GET",
+      pattern: "/api/import/targets",
+      // Empty text channels: a chat can only be imported into one of these, or a new one.
+      handler: () => json({ channels: store.listChannels().filter((c) => c.kind === "text" && !store.lastMessage(c.id)) }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/import/preview",
+      handler: async (request) => json({ preview: previewOf((await readChatExport(request)).chat) }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/import",
+      handler: async (request) => {
+        const { body, chat } = await readChatExport(request);
+        let target: ImportTarget;
+        if (typeof body.channelId === "string" && body.channelId) target = { channelId: body.channelId };
+        else if (typeof body.newChannel === "string" && body.newChannel.trim()) target = { newChannel: body.newChannel };
+        else throw new HttpError(400, 'Say where to import: "channelId" (an empty channel) or "newChannel" (a name).');
+        if (body.catchUp === true && catchUp.status().running) throw new HttpError(409, "She's still catching up on another chat. Wait for that to finish.");
+        const { channel, imported } = importChat(store, chat, target);
+        // No "messages" event: nothing here is new, so no notifications, and
+        // she doesn't reply. The app opens the channel itself.
+        events.publish({ type: "channels", channels: store.listChannels() });
+        if (body.catchUp === true) catchUp.start(channel.id);
+        console.log(`[import] ${imported} message(s) into #${channel.name}${body.catchUp === true ? ", catching up" : ""}`);
+        return json({ channel, imported, catchUp: body.catchUp === true });
+      },
     },
 
     // ---------------------------------------------------- texting first
@@ -899,12 +951,14 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
   }
 
-  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler, proactive, presence, notifier };
+  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler, proactive, presence, notifier, catchUp };
 }
 
 /** Turn a thrown error into the right JSON error response. */
 export function errorFor(error: unknown): Response {
   if (error instanceof HttpError) return errorResponse(error.status, error.message);
+  // A chat export that can't be read: the message, and the file's layout (never its text).
+  if (error instanceof ImportError) return json({ error: error.message, layout: error.layout }, 400);
   if (error instanceof NotFoundError) return errorResponse(404, error.message);
   if (error instanceof BusyError || error instanceof AlreadyProcessingError) return errorResponse(409, error.message);
   if (error instanceof ValidationError) return errorResponse(400, error.message);
@@ -1036,6 +1090,8 @@ function main(): void {
   keepAwake();
 
   console.log(`Kitsikai is running at http://${server.hostname}:${server.port}`);
+  // Everything planned is in the server's local time, so it has to match the phone's.
+  console.log(`Time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone} (it's ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} here)`);
   console.log(`Saving your data in ${config.dataDir}`);
   if (!config.apiKey) {
     console.warn("Warning: NANOGPT_API_KEY is not set, so Kitsikai can't reply yet. See .env.example.");

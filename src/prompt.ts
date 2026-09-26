@@ -49,7 +49,7 @@ Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to s
 export const PLANNER_NOTE = `From the planner you share with them (their shifts and plans; "not confirmed yet" means they haven't checked it):`;
 
 /** How to use her tools (stage 6: lookups; stage 7: her notes). */
-export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), what you said in other channels (read_channel), and things you've unpinned (look_in_drawer). You can jot a note on your scratchpad (jot_note) when something's worth remembering, or when they ask you to pin something or let a pin go.
+export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), what you said in other channels (read_channel), anything older you two said (search_history), and things you've unpinned (look_in_drawer). You can jot a note on your scratchpad (jot_note) when something's worth remembering, or when they ask you to pin something or let a pin go.
 
 Use tools only when they help: most texts need none. If a plan or something logged comes up and it isn't in front of you, look it up instead of guessing. Never mention tools or looking things up: just know it, like a friend who remembers. If there's nothing you'd text, you can call do_nothing.`;
 

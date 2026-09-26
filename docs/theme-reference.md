@@ -174,6 +174,7 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.proactive-check-result` | What "Check now" found (texting first). Has `data-outcome` (`sent`, `queued`, `waiting`, `declined`, `nothing`, `error`). |
 | `.proactive-line` | One texting-first check in the log. Has `data-outcome`. |
 | `.reminder-due`, `.reminder-record` | A reminder that's due, and one that was dealt with (`data-status`: `sent`, `skipped`, `queued`) |
+| `.import-chat`, `.import-chat-preview`, `.import-target` | Importing a chat: the dialog, its preview (`.ok` or `.failed`), and where to import |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

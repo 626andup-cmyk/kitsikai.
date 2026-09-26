@@ -618,6 +618,34 @@ export class Store {
     return rows.reverse().map((row) => ({ message: toMessage(row), seq: row.seq }));
   }
 
+  /**
+   * Search messages for words (all of them, in any order, ignoring case),
+   * newest first: her `search_history` tool, for an imported chat or
+   * anything older than what's in view.
+   *
+   * @param exclude  Message ids to leave out (the ones already in view).
+   */
+  searchMessages(words: string[], options: { channelIds: string[]; exclude?: Set<string>; limit?: number }): Message[] {
+    if (words.length === 0 || options.channelIds.length === 0) return [];
+    // LIKE treats % and _ as wildcards; escape them so they match themselves.
+    const params: Record<string, string> = {};
+    const likes = words.map((word, i) => {
+      params[`w${i}`] = `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      return `content LIKE $w${i} ESCAPE '\\'`;
+    });
+    const channels = options.channelIds.map((id, i) => {
+      params[`c${i}`] = id;
+      return `$c${i}`;
+    });
+    const rows = this.db
+      .query(`${SELECT_MESSAGES} WHERE channel_id IN (${channels.join(", ")}) AND ${likes.join(" AND ")} ORDER BY seq DESC LIMIT 500`)
+      .all(params) as MessageRow[];
+    return rows
+      .map(toMessage)
+      .filter((m) => !options.exclude?.has(m.id))
+      .slice(0, options.limit ?? 20);
+  }
+
   /** One message. Throws `NotFoundError` if there's no such message. */
   getMessage(id: string): Message {
     const row = this.db.query(`${SELECT_MESSAGES} WHERE id = $id`).get({ id }) as MessageRow | null;

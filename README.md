@@ -22,6 +22,7 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **She texts first**, when it makes sense, and usually doesn't: **reminders** for your plans in her own words (skipped if you just talked about it), "how'd it go?" when your **shift ends**, **following up** on something, or **just because** after a quiet stretch. She picks the channel that fits, and doesn't interrupt a conversation in progress. A **double-text cap** (or "let her judge") keeps her from overdoing it.
 - **On call**: tell her you got called in, and she treats you as at work until you say you're done or the window ends.
 - **Notifications** (Termux): her messages show up on your phone while the app isn't open; tap one to open that channel.
+- **Bring over a chat** from Lumiverse or SillyTavern (Settings → Chat history): it goes into its own channel with the original dates, she can **search** everything you've said (not just the recent messages in view), and, if you like, she **catches up** on it, noting what's still worth knowing. The preview never shows message text. See [docs/importing.md](docs/importing.md).
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
@@ -67,6 +68,7 @@ The app only works while the server is running. If it says it can't connect, sta
 | `DATA_DIR` | `./data` | Where your data is saved |
 | `NANOGPT_BASE_URL` | `https://nano-gpt.com/api/v1` | API address (only change this for testing) |
 | `REQUEST_TIMEOUT_SECONDS` | `180` | How long to wait for a reply before giving up |
+| `TZ` | the system's | Your time zone, like `America/Chicago`. Only needed if the server's doesn't match your phone's: the app warns you if so. |
 
 Everything else is changed in the app.
 
@@ -103,6 +105,8 @@ src/
   proactive.ts Texting first: the snapshot check, picking a channel, the double-text cap
   reminders.ts Due reminders and what happened to each, on-call status, the texting-first log
   notify.ts    Phone notifications through Termux, and whether the app is on screen
+  importer.ts  Reading a Lumiverse/SillyTavern chat export, and importing it into a channel
+  catchup.ts   Her reading an imported chat back, and noting what's still worth knowing
   writer.ts    The processing writer: words for her notes, pins and plan cards
   memory.ts    Her notes, pins and processing log in the database, and in her prompt
   binder.ts    Plans, work and stickers, in words (for the prompt and the tools)

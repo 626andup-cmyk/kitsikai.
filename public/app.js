@@ -29,6 +29,8 @@ const state = {
   channels: [],
   /** Channels where she's written something you haven't seen yet. */
   unread: new Set(),
+  /** For the plan editor: each plan kind's default reminders, and reminder labels (stage 3). */
+  planner: null,
   /** Id of the open channel, or null if there are no channels. */
   channelId: null,
   /** Connection profiles: {id, name, model, temperature, maxTokens, topP, reasoningEffort, supportsTools, quirkPrompt, extraParams}. */
@@ -60,6 +62,13 @@ const state = {
 
 // Shortcut for looking up elements by id.
 const $ = (id) => document.getElementById(id);
+
+/**
+ * Screens for channels that aren't chats, by channel kind: the 📅 planner
+ * (planner.js, stage 3). Each has `open()` (the channel was opened),
+ * `render()` (redraw) and `reload()` (fetch again, when something changed).
+ */
+const screens = {};
 
 const els = {
   app: $("app"),
@@ -137,6 +146,7 @@ async function loadState() {
   state.profiles = data.profiles;
   state.roulettes = data.roulettes;
   state.busy = new Set(data.busyChannels);
+  state.planner = data.planner;
   state.appVersion ??= data.appVersion;
   checkForUpdate(data.appVersion);
 }
@@ -191,6 +201,14 @@ async function openChannel(channelId) {
   // hashchange handler.)
   const hash = channelId ? `#/channel/${channelId}` : "";
   if (location.hash !== hash) history.replaceState(null, "", hash || location.pathname);
+
+  const screen = screens[state.channels.find((c) => c.id === channelId)?.kind];
+  if (screen) {
+    // A planner (or later, trackers) channel shows its screen instead of a chat.
+    renderAll();
+    screen.open();
+    return;
+  }
 
   if (channelId) {
     try {
@@ -296,6 +314,11 @@ async function deleteChannel() {
 function homeChannelId() {
   const text = state.channels.filter((c) => c.kind === "text");
   return (text.find((c) => c.id === state.settings.homeChannelId) ?? text[0])?.id ?? null;
+}
+
+/** Whether the open channel shows a screen (the planner...) instead of a chat. */
+function onScreen() {
+  return Boolean(screens[currentChannel()?.kind]);
 }
 
 async function clearChannel() {
@@ -649,6 +672,9 @@ function handleEvent(event) {
       if (!currentChannel()) openChannel(state.channels[0]?.id ?? null);
       else renderAll();
       break;
+    case "plans":
+      if (currentChannel()?.kind === "planner") screens.planner.reload();
+      break;
   }
 }
 
@@ -663,7 +689,8 @@ async function catchUp() {
     await openChannel(state.channels[0]?.id ?? null);
     return;
   }
-  await refreshMessages();
+  if (onScreen()) screens[currentChannel().kind].reload();
+  else await refreshMessages();
 }
 
 // -------------------------------------------------------------- rendering
@@ -673,6 +700,15 @@ function renderAll() {
   applyThemes();
   renderSidebar();
   renderChannelHeader();
+  // A planner channel shows its screen; a text channel, its messages and composer.
+  const screen = screens[currentChannel()?.kind];
+  for (const [kind, element] of [["planner", $("planner")]]) element.hidden = currentChannel()?.kind !== kind;
+  els.messages.hidden = Boolean(screen);
+  if (screen) {
+    els.composer.hidden = true;
+    screen.render();
+    return;
+  }
   renderMessages();
   renderComposer();
 }
@@ -762,6 +798,9 @@ function moveChannelIndicator() {
   }, 170);
 }
 
+/** The icon for each kind of channel. */
+const CHANNEL_ICONS = { text: "#icon-hash", planner: "#icon-calendar" };
+
 /** The icon for a kind of channel. */
 function channelIcon(kind) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -770,7 +809,7 @@ function channelIcon(kind) {
   svg.setAttribute("height", "18");
   svg.setAttribute("aria-hidden", "true");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", "#icon-hash");
+  use.setAttribute("href", CHANNEL_ICONS[kind] ?? "#icon-hash");
   svg.append(use);
   return svg;
 }
@@ -783,6 +822,7 @@ function renderChannelHeader() {
   els.channelView.dataset.channelKind = channel?.kind ?? "";
 
   els.channelName.textContent = channel?.name ?? "";
+  els.channelTitleIcon.setAttribute("href", CHANNEL_ICONS[channel?.kind] ?? "#icon-hash");
   els.channelTopic.textContent = channel?.topic ?? "";
   $("channel-settings-button").hidden = !channel;
   document.title = channel ? `#${channel.name} · ${herName()}` : herName();
@@ -1018,6 +1058,11 @@ function scrollToBottom() {
  * should call, or null to hide that button.
  */
 function showError(message, retry) {
+  // Screens like the planner have no composer, so the error goes at the top.
+  if (onScreen()) {
+    showNotice(message);
+    return;
+  }
   state.retry = retry;
   els.errorText.textContent = message;
   els.errorRetry.hidden = !retry;
@@ -1632,7 +1677,8 @@ function openChannelSettings() {
   form.name.value = channel.name;
   form.topic.value = channel.topic;
   form.home.checked = homeChannelId() === channel.id;
-  $("channel-home-row").hidden = channel.kind !== "text";
+  // Some settings only make sense where she texts.
+  for (const element of els.channelForm.querySelectorAll(".text-only")) element.hidden = channel.kind !== "text";
   form.theme.replaceChildren(new Option("Same as the app theme", ""), ...state.themes.map((t) => new Option(t.name, t.id)));
   form.theme.value = channel.theme ?? "";
   fillAssignmentSelect(
@@ -1644,11 +1690,24 @@ function openChannelSettings() {
   els.channelDialog.showModal();
 }
 
-/** The new channel dialog. */
+/** The new channel dialog. There can only be one planner. */
 function openNewChannel() {
   $("new-channel-form").reset();
   hideFormError($("new-channel-form"));
+  for (const radio of $("new-channel-form").querySelectorAll('input[name="kind"]')) {
+    const taken = radio.value !== "text" && state.channels.some((c) => c.kind === radio.value);
+    radio.disabled = taken;
+    radio.closest(".kind-option").classList.toggle("taken", taken);
+  }
+  updateNewChannelKind();
   $("new-channel-dialog").showModal();
+}
+
+/** Suggest a name for a planner channel. */
+function updateNewChannelKind() {
+  const form = $("new-channel-form").elements;
+  $("new-channel-topic-row").hidden = form.kind.value !== "text";
+  if (form.kind.value === "planner" && !form.name.value) form.name.value = "planner";
 }
 
 /**
@@ -2120,6 +2179,7 @@ $("channel-move-down").addEventListener("click", () => moveChannel(1));
 $("delete-channel").addEventListener("click", deleteChannel);
 $("new-channel-button").addEventListener("click", openNewChannel);
 $("new-channel-form").addEventListener("submit", createChannel);
+$("new-channel-form").addEventListener("change", updateNewChannelKind);
 $("preview-prompt").addEventListener("click", previewPrompt);
 $("clear-channel").addEventListener("click", clearChannel);
 
@@ -2162,9 +2222,13 @@ if ("serviceWorker" in navigator) {
 // the first channel).
 if (readLocal(LAST_THEME_KEY)) setStylesheet("theme-app", `/themes/${readLocal(LAST_THEME_KEY)}/theme.css?v=0`);
 
-Promise.all([loadState(), loadThemes()])
-  .then(() => {
-    connectEvents();
-    return openChannel(channelFromAddress() ?? state.channels[0]?.id ?? null);
-  })
-  .catch((error) => showError(`Couldn't load Kitsikai: ${error.message}`, () => location.reload()));
+// The other scripts (planner.js...) run after this one, so wait for them
+// before starting: DOMContentLoaded fires once every deferred script has run.
+document.addEventListener("DOMContentLoaded", () => {
+  Promise.all([loadState(), loadThemes()])
+    .then(() => {
+      connectEvents();
+      return openChannel(channelFromAddress() ?? state.channels[0]?.id ?? null);
+    })
+    .catch((error) => showError(`Couldn't load Kitsikai: ${error.message}`, () => location.reload()));
+});

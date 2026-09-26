@@ -36,10 +36,10 @@ afterEach(() => {
 });
 
 describe("a new server", () => {
-  test("starts with #general and one profile", async () => {
+  test("starts with #general, the planner, and one profile", async () => {
     const { status, data } = await call("GET", "/api/state");
     expect(status).toBe(200);
-    expect(data.channels.map((c: Channel) => c.name)).toEqual(["general"]);
+    expect(data.channels.map((c: Channel) => c.name)).toEqual(["general", "planner"]);
     expect(data.profiles).toHaveLength(1);
     expect(data.settings.name).toBe("Kitsikai");
     expect(data.settings.persona).toContain("You're Kitsikai");

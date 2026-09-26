@@ -127,6 +127,54 @@ export const MIGRATIONS: Migration[] = [
   `
   ALTER TABLE channels ADD COLUMN topic TEXT NOT NULL DEFAULT '';
   `,
+
+  // ---------------------------------------------------------------- 3
+  // Stage 3: the planner. A plan is anything planned, on a day, maybe at a
+  // time; shifts and events are the same record with different kinds.
+  // Dates and times are the phone's local time, stored as text
+  // ("2026-09-28", "22:00"); see src/dates.ts.
+  (db) => {
+    db.exec(`
+    CREATE TABLE plans (
+      id          TEXT PRIMARY KEY,
+      kind        TEXT NOT NULL CHECK (kind IN ('shift', 'appointment', 'birthday', 'hangout', 'other')),
+      title       TEXT NOT NULL,
+      start_date  TEXT NOT NULL,
+      -- NULL: all day.
+      start_time  TEXT,
+      -- The end has its own date, so overnight shifts (10pm to 6am) work.
+      end_date    TEXT,
+      end_time    TEXT,
+      repeats     TEXT NOT NULL DEFAULT 'never' CHECK (repeats IN ('never', 'weekly', 'yearly')),
+      -- This plan's own reminders as a JSON list, or NULL for its kind's defaults.
+      reminders   TEXT,
+      -- Whether you've confirmed it.
+      checked     INTEGER NOT NULL DEFAULT 0,
+      -- Shifts only.
+      shift_type  TEXT CHECK (shift_type IN ('regular', 'meeting', 'oncall')),
+      -- Regular shifts only. Draw TIME is never stored: it's always
+      -- calculated from these, so it can't disagree with them.
+      draw_start  TEXT,
+      draw_end    TEXT,
+      notes       TEXT NOT NULL DEFAULT '',
+      source      TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'screenshot', 'chat')),
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+    CREATE INDEX plans_by_date ON plans (start_date);
+    `);
+
+    // The planner is a channel type. An existing server gets a planner
+    // channel at the bottom of its list. (A brand-new one gets it when it's
+    // first filled in; see Store.seed.)
+    const { count } = db.query("SELECT COUNT(*) AS count FROM channels").get() as { count: number };
+    if (count > 0) {
+      db.query(
+        `INSERT INTO channels (id, name, kind, position, created_at)
+         VALUES (?, 'planner', 'planner', (SELECT MAX(position) + 1 FROM channels), ?)`,
+      ).run(crypto.randomUUID(), new Date().toISOString());
+    }
+  },
 ];
 
 /**

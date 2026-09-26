@@ -76,6 +76,18 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `--scrim` | The dark layer behind dialogs and the phone sidebar |
 | `--code-bg` | Prompt preview blocks |
 
+### Planner
+
+| Variable | What it sets |
+| --- | --- |
+| `--calendar-day-bg`, `--calendar-day-border` | A day on the calendar |
+| `--calendar-outside-opacity` | Days from the months before and after |
+| `--today-ring` | Today's date, the selected day, and today in the weekly list |
+| `--shift-chip-bg`, `--meeting-chip-bg`, `--oncall-chip-bg`, `--shift-chip-text` | Shift chips on the calendar, by shift type |
+| `--plan-chip-bg`, `--plan-chip-text` | Other plans on the calendar |
+| `--card-bg`, `--card-border` | Plan cards, and days in the weekly list |
+| `--calculated-text` | Values that are worked out, never typed, like draw time |
+
 ### Controls
 
 | Variable | What it sets |
@@ -110,6 +122,16 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.profile-list`, `.profile-row`, `.profile-row-name`, `.roulette-entries`, `.roulette-entry`, `.roulette-share` | Profiles and roulettes |
 | `.entry-badges`, `.entry-badge` | Small labels, like "tools" on a profile |
 | `.tool-test-row`, `.tool-test` | "Test tools" and its result, which has `data-verdict` (`native`, `text`, `none` or `broken`) |
+| `.planner-view`, `.planner-toolbar`, `.planner-tabs`, `.planner-tab`, `.planner-period`, `.planner-nav`, `.planner-title` | The planner channel's screen and its toolbar. The chosen tab has `aria-selected="true"`. |
+| `.calendar`, `.calendar-weekday`, `.calendar-day`, `.calendar-day-number` | The month grid. A day has `data-date`, and `.outside` (another month), `.today`, `.double-booked`, and `aria-pressed="true"` when selected. |
+| `.shift-chip`, `.plan-chip` | Plans on a calendar day. A shift chip has `data-shift-type` (`regular`, `meeting`, `oncall`); a plan chip has `data-kind`. |
+| `.calendar-day-panel`, `.day-panel-title`, `.day-panel-cards` | The selected day's cards, under the calendar |
+| `.plan-card`, `.shift-card`, `.plan-card-head`, `.plan-card-title`, `.plan-card-time`, `.plan-card-details`, `.plan-card-reminders` | A plan's full card. Has `data-kind` (and `data-shift-type` for shifts). |
+| `.draw-time` | A calculated value (draw time), shown greyed |
+| `.unchecked` | A plan you haven't confirmed yet, on any chip, card or row |
+| `.week-view`, `.week-list`, `.week-day`, `.week-day-title`, `.week-day-empty`, `.week-day-total`, `.week-totals` | The weekly list. A day has `data-date`, and `.today`. |
+| `.shift-row`, `.shift-row-type`, `.shift-row-hours`, `.shift-row-length`, `.shift-row-draw`, `.shift-row-draw-time`, `.week-plan` | Rows in the weekly list |
+| `.plan-editor`, `.reminder-choices` | The plan editor |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
+import { Plans } from "./planner.ts";
 import { Profiles } from "./profiles.ts";
 import type { Author, Channel, ChannelKind, Message, Settings } from "./types.ts";
 
@@ -151,7 +152,10 @@ export function themeId(value: unknown, field: string): string {
 }
 
 /** The kinds of channel you can make (see `ChannelKind`). */
-export const CHANNEL_KINDS: ChannelKind[] = ["text"];
+export const CHANNEL_KINDS: ChannelKind[] = ["text", "planner"];
+
+/** Kinds of channel that show a screen instead of a chat. You can only have one of each. */
+export const SCREEN_KINDS: ChannelKind[] = ["planner"];
 
 /** The fields you give when creating a channel. */
 export interface NewChannel {
@@ -326,12 +330,14 @@ export class Store {
   readonly db: Database;
   /** Connection profiles and roulettes (see `src/profiles.ts`). */
   readonly profiles: Profiles;
+  /** Plans: shifts and events (see `src/planner.ts`). */
+  readonly plans: Plans;
 
   /**
    * Open (or create) the database inside `dataDir`.
    *
    * The very first time, it's filled with starting content: a `#general`
-   * channel and one connection profile.
+   * channel, the 📅 planner, and one connection profile.
    *
    * @param dataDir  Folder for the database. Created if it doesn't exist.
    *                 Pass `":memory:"` for a throwaway database (for tests).
@@ -344,6 +350,7 @@ export class Store {
     const isNew = inMemory || !existsSync(path);
     this.db = openDatabase(path);
     this.profiles = new Profiles(this.db);
+    this.plans = new Plans(this.db);
 
     if (isNew) this.seed();
   }
@@ -352,6 +359,7 @@ export class Store {
   private seed(): void {
     this.db.transaction(() => {
       this.insertChannel("general", "text");
+      this.insertChannel("planner", "planner");
       this.profiles.create({ name: DEFAULT_MODEL.split("/").at(-1), model: DEFAULT_MODEL });
     })();
   }
@@ -399,8 +407,14 @@ export class Store {
     return toChannel(row);
   }
 
-  /** Create a channel at the bottom of the sidebar. */
+  /**
+   * Create a channel at the bottom of the sidebar. There can be only one
+   * planner: it shows the same plans however many there are.
+   */
   createChannel(input: NewChannel): Channel {
+    if (SCREEN_KINDS.includes(input.kind) && this.listChannels().some((c) => c.kind === input.kind)) {
+      throw new ValidationError(`There's already a ${input.kind} channel.`);
+    }
     const channel = this.insertChannel(input.name, input.kind);
     return input.topic ? this.updateChannel(channel.id, { topic: input.topic }) : channel;
   }

@@ -168,4 +168,75 @@ describeUi("the app in a browser", () => {
     expect(await page.$$eval(".channel-link.unread", (n) => n.length)).toBe(0);
     expect(t.errors).toEqual([]);
   });
+
+  test("the planner: add a plan, see it on the calendar and the weekly list, edit and delete it", async () => {
+    const { page, app } = t;
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day");
+    expect(await page.isVisible("#composer")).toBe(false);
+
+    // An overnight shift with draw hours, on the selected day (today).
+    await page.click("#planner-add");
+    await page.selectOption("#plan-kind", "shift");
+    expect(await page.inputValue("#plan-title-input")).toBe("Work");
+    await page.fill("#plan-start-time", "22:00");
+    await page.fill("#plan-end-time", "06:00");
+    await page.fill("#plan-draw-start", "23:00");
+    await page.fill("#plan-draw-end", "03:30");
+    expect(await page.textContent("#plan-draw-time")).toContain("4h 30m");
+    await page.click('#plan-form button[type="submit"]');
+    await page.waitForSelector(".calendar-day .shift-chip");
+    expect(await page.textContent(".calendar-day .shift-chip")).toBe("10:00p–6:00a");
+    const [plan] = app.store.plans.list();
+    expect(plan).toMatchObject({ kind: "shift", endTime: "06:00", drawStart: "23:00", checked: true });
+    expect(plan!.endDate! > plan!.startDate).toBe(true);
+    await page.waitForSelector('.shift-card:has-text("Draw time 4h 30m")');
+
+    // The weekly list shows it with its totals.
+    await page.click('.planner-tab[data-view="week"]');
+    await page.waitForSelector(".shift-row");
+    expect(await page.textContent(".week-totals")).toBe("Shift hours 8h · Draw time 4h 30m");
+
+    // Edit it into a meeting, then delete it.
+    await page.click(".shift-row");
+    await page.selectOption("#plan-shift-type", "meeting");
+    expect(await page.isVisible("#plan-draw-fields")).toBe(false);
+    await page.click('#plan-form button[type="submit"]');
+    await page.waitForSelector('.shift-row[data-shift-type="meeting"]');
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.click(".shift-row");
+    await page.click("#plan-delete");
+    await page.waitForSelector(".shift-row", { state: "detached" });
+    expect(app.store.plans.list()).toEqual([]);
+    expect(t.errors).toEqual([]);
+  });
+
+  test("the planner: plan errors show in the editor, and the calendar moves between months", async () => {
+    const { page } = t;
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day");
+    const title = await page.textContent("#planner-title");
+    await page.click("#planner-next");
+    await page.waitForFunction(`document.getElementById("planner-title").textContent !== ${JSON.stringify(title)}`);
+    await page.click("#planner-today");
+    await page.waitForFunction(`document.getElementById("planner-title").textContent === ${JSON.stringify(title)}`);
+
+    await page.click("#planner-add");
+    await page.fill("#plan-title-input", "");
+    await page.click('#plan-form button[type="submit"]');
+    await page.waitForSelector("#plan-form .form-error:not([hidden])");
+    expect(await page.textContent("#plan-form .form-error")).toContain("needs a title");
+  });
+
+  test("channel settings for the planner hide what's only for chats", async () => {
+    const { page } = t;
+    await page.click('.channel-link:has-text("planner")');
+    await page.click("#channel-settings-button");
+    expect(await page.isVisible("#channel-home-row")).toBe(false);
+    expect(await page.isVisible("#preview-prompt")).toBe(false);
+    await page.click("#channel-dialog [data-close]");
+    await page.click("#new-channel-button");
+    expect(await page.isDisabled('#new-channel-form input[value="planner"]')).toBe(true);
+  });
 });
+

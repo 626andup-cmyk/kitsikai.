@@ -117,7 +117,7 @@ In this stage reminders are **worked out and shown, not sent**. Stage 8 has her 
 
 The planner channel shows its screen instead of messages and a composer (`public/planner.js`). Channels have a new kind, `planner`, and there can only be one: a new server has one, and an existing server got one at the bottom of its channel list when it upgraded (migration 3).
 
-- **Calendar**: a month grid, Monday first. Shifts show as chips with their hours, stacked on double-booked days; other plans show with an icon (📌 🎂 🎉). Tap a day to see its full cards underneath: shift hours, draw hours, draw time (calculated), repeats, and when each reminder goes off.
+- **Calendar**: a month grid, Sunday first. Shifts show as chips with their hours, stacked on double-booked days; other plans show with an icon (📌 🎂 🎉). Tap a day to see its full cards underneath: shift hours, draw hours, draw time (calculated), repeats, and when each reminder goes off.
 - **Week**: Monday to Sunday, every shift with all its fields (type, hours, shift length, draw hours, draw time), a **day total** on double-booked days, and **week totals** at the bottom: shift hours and draw time. On-call hours are shown **separately, and not counted**, since on-call is free unless you're called in (this answers DESIGN.md's open question both ways).
 
 Both views are the same data (nothing stored twice): the calendar asks for occurrences in its date range (`GET /api/plans?from=&to=`), and the weekly list asks for a week (`GET /api/planner/week?date=`), which adds the totals (`weekSummary`).

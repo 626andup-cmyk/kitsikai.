@@ -62,6 +62,12 @@ function mondayOfDate(date) {
   return shiftDate(date, -((day + 6) % 7));
 }
 
+/** The Sunday a date's week starts on, in the calendar. */
+function sundayOfDate(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  return shiftDate(date, -new Date(y, m - 1, d, 12).getDay());
+}
+
 /** The first of the month a date is in. */
 function firstOfMonth(date) {
   return `${date.slice(0, 7)}-01`;
@@ -128,11 +134,15 @@ function openPlanner() {
   loadPlanner();
 }
 
-/** The dates the calendar grid shows: whole weeks, Monday to Sunday, covering the month. */
+/**
+ * The dates the calendar grid shows: whole weeks, Sunday to Saturday,
+ * covering the month. (The weekly list still runs Monday to Sunday, like
+ * the work schedule.)
+ */
 function calendarRange() {
-  const start = mondayOfDate(planner.month);
+  const start = sundayOfDate(planner.month);
   const lastOfMonth = shiftDate(shiftMonth(planner.month, 1), -1);
-  const end = shiftDate(mondayOfDate(lastOfMonth), 6);
+  const end = shiftDate(sundayOfDate(lastOfMonth), 6);
   return { start, end };
 }
 
@@ -187,7 +197,7 @@ function renderCalendar() {
   const today = todayDate();
   const grid = $("calendar-grid");
   const cells = [];
-  for (const name of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+  for (const name of ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]) {
     const head = document.createElement("div");
     head.className = "calendar-weekday";
     head.textContent = name;

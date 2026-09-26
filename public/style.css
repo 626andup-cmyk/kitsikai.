@@ -352,6 +352,19 @@ textarea {
   animation: pulse 1.2s infinite ease-in-out;
 }
 
+/* A dot on channels where she's written something you haven't seen yet. */
+.channel-link.unread {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.channel-unread {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-strong);
+}
+
 @keyframes pulse {
   50% {
     opacity: 0.3;
@@ -667,6 +680,13 @@ textarea {
   margin-bottom: 6px;
   font-size: 14px;
   color: var(--text-muted);
+}
+
+/* While her bubbles appear one by one, the typing indicator can be double-tapped to skip ahead. */
+.status.revealing {
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 /* Three bouncing dots, like a typing indicator. */

@@ -48,6 +48,10 @@ export function defaultSettings(): Settings {
     historyLimit: 40,
     appTheme: "classic",
     themeOptions: {},
+    homeChannelId: "",
+    replyDebounceSeconds: 4,
+    typingBaseMs: 600,
+    typingPerCharMs: 40,
   };
 }
 
@@ -85,6 +89,20 @@ export function validateSettings(input: unknown): Partial<Settings> {
   // Only the id's form is checked here; the server checks the theme exists.
   if (raw.appTheme !== undefined) clean.appTheme = themeId(raw.appTheme, "appTheme");
   if (raw.themeOptions !== undefined) clean.themeOptions = themeOptions(raw.themeOptions);
+  // Only the form is checked here; the server checks the channel exists.
+  if (raw.homeChannelId !== undefined) {
+    if (typeof raw.homeChannelId !== "string" || raw.homeChannelId.length > 100) {
+      throw new ValidationError("homeChannelId must be a channel id");
+    }
+    clean.homeChannelId = raw.homeChannelId;
+  }
+  if (raw.replyDebounceSeconds !== undefined) {
+    clean.replyDebounceSeconds = numberInRange(raw.replyDebounceSeconds, "replyDebounceSeconds", 0, 120, false);
+  }
+  if (raw.typingBaseMs !== undefined) clean.typingBaseMs = numberInRange(raw.typingBaseMs, "typingBaseMs", 0, 10_000, true);
+  if (raw.typingPerCharMs !== undefined) {
+    clean.typingPerCharMs = numberInRange(raw.typingPerCharMs, "typingPerCharMs", 0, 1000, true);
+  }
 
   return clean;
 }
@@ -132,16 +150,48 @@ export function themeId(value: unknown, field: string): string {
   return value;
 }
 
+/** The kinds of channel you can make (see `ChannelKind`). */
+export const CHANNEL_KINDS: ChannelKind[] = ["text"];
+
+/** The fields you give when creating a channel. */
+export interface NewChannel {
+  name: string;
+  kind: ChannelKind;
+  topic?: string;
+}
+
+/** Check the body of a "create channel" request. */
+export function validateNewChannel(input: unknown): NewChannel {
+  const raw = requireObject(input, "Channel");
+  const kind = raw.kind ?? "text";
+  if (!CHANNEL_KINDS.includes(kind as ChannelKind)) {
+    throw new ValidationError(`kind must be one of: ${CHANNEL_KINDS.join(", ")}`);
+  }
+  return {
+    name: channelName(raw.name),
+    kind: kind as ChannelKind,
+    ...(raw.topic !== undefined ? { topic: topic(raw.topic) } : {}),
+  };
+}
+
+/** A channel topic: short text, maybe empty. */
+function topic(value: unknown): string {
+  if (typeof value !== "string") throw new ValidationError("topic must be text");
+  if (value.trim().length > 300) throw new ValidationError("topic is too long (300 characters at most)");
+  return value.trim();
+}
+
 /**
  * The channel fields that can be changed after creation.
  */
-export type ChannelUpdate = Partial<Pick<Channel, "name" | "theme" | "assignment">>;
+export type ChannelUpdate = Partial<Pick<Channel, "name" | "topic" | "theme" | "assignment">>;
 
 /** Check a partial channel update. The kind can't be changed, so it's ignored. */
 export function validateChannelUpdate(input: unknown): ChannelUpdate {
   const raw = requireObject(input, "Channel");
   const clean: ChannelUpdate = {};
   if (raw.name !== undefined) clean.name = channelName(raw.name);
+  if (raw.topic !== undefined) clean.topic = topic(raw.topic);
   // `null` (or "") means "use the app theme".
   if (raw.theme !== undefined) clean.theme = raw.theme === null || raw.theme === "" ? null : themeId(raw.theme, "theme");
   // `null` (or "") means "use the app-wide chat assignment".
@@ -208,6 +258,7 @@ interface ChannelRow {
   id: string;
   name: string;
   kind: ChannelKind;
+  topic: string;
   theme: string | null;
   assignment: string | null;
   position: number;
@@ -231,6 +282,7 @@ function toChannel(row: ChannelRow): Channel {
     id: row.id,
     name: row.name,
     kind: row.kind,
+    topic: row.topic,
     theme: row.theme,
     assignment: row.assignment,
     position: row.position,
@@ -347,6 +399,12 @@ export class Store {
     return toChannel(row);
   }
 
+  /** Create a channel at the bottom of the sidebar. */
+  createChannel(input: NewChannel): Channel {
+    const channel = this.insertChannel(input.name, input.kind);
+    return input.topic ? this.updateChannel(channel.id, { topic: input.topic }) : channel;
+  }
+
   /** Add a channel at the bottom of the sidebar. */
   protected insertChannel(channelNameValue: string, kind: ChannelKind): Channel {
     const { next } = this.db.query("SELECT COALESCE(MAX(position) + 1, 0) AS next FROM channels").get() as {
@@ -362,13 +420,55 @@ export class Store {
     return this.getChannel(id);
   }
 
-  /** Change a channel's name, theme or profile. Returns the updated channel. */
+  /** Change a channel's name, topic, theme or profile. Returns the updated channel. */
   updateChannel(id: string, update: ChannelUpdate): Channel {
     const merged = { ...this.getChannel(id), ...update };
     this.db
-      .query("UPDATE channels SET name = $name, theme = $theme, assignment = $assignment WHERE id = $id")
-      .run({ id, name: merged.name, theme: merged.theme, assignment: merged.assignment });
+      .query("UPDATE channels SET name = $name, topic = $topic, theme = $theme, assignment = $assignment WHERE id = $id")
+      .run({ id, name: merged.name, topic: merged.topic, theme: merged.theme, assignment: merged.assignment });
     return this.getChannel(id);
+  }
+
+  /**
+   * Put the channels in a new order.
+   *
+   * @param ids  Every channel id, in the new order. Leaving one out or adding
+   *             an unknown one is an error, so the order can never end up
+   *             with gaps or duplicates.
+   */
+  reorderChannels(ids: string[]): Channel[] {
+    const existing = new Set(this.listChannels().map((c) => c.id));
+    const given = new Set(ids);
+    if (given.size !== ids.length || given.size !== existing.size || ids.some((id) => !existing.has(id))) {
+      throw new ValidationError("The new order must list every channel exactly once.");
+    }
+    const setPosition = this.db.query("UPDATE channels SET position = $position WHERE id = $id");
+    this.db.transaction(() => {
+      ids.forEach((id, position) => setPosition.run({ id, position }));
+    })();
+    return this.listChannels();
+  }
+
+  /**
+   * Delete a channel and, through `ON DELETE CASCADE`, all its messages.
+   * The last text channel can't be deleted: she needs somewhere to talk.
+   */
+  deleteChannel(id: string): void {
+    const channel = this.getChannel(id);
+    if (channel.kind === "text" && this.listChannels().filter((c) => c.kind === "text").length === 1) {
+      throw new ValidationError("You need at least one text channel, so the last one can't be deleted.");
+    }
+    this.db.query("DELETE FROM channels WHERE id = $id").run({ id });
+  }
+
+  /**
+   * The home channel: the one you chose in settings, or the first text
+   * channel if you haven't (or if yours was deleted).
+   */
+  homeChannel(): Channel {
+    const chosen = this.getSettings().homeChannelId;
+    const text = this.listChannels().filter((c) => c.kind === "text");
+    return text.find((c) => c.id === chosen) ?? text[0]!;
   }
 
   /**

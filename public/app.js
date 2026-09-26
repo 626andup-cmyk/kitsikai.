@@ -19,10 +19,16 @@
 
 /** Everything the page is currently showing. */
 const state = {
-  /** App-wide settings: name, userName, persona, chatAssignment, historyLimit, appTheme, themeOptions. */
+  /**
+   * App-wide settings: name, userName, persona, chatAssignment, historyLimit,
+   * appTheme, themeOptions, homeChannelId, replyDebounceSeconds,
+   * typingBaseMs, typingPerCharMs.
+   */
   settings: null,
-  /** Every channel, in sidebar order: {id, name, kind, theme, assignment, position}. */
+  /** Every channel, in sidebar order: {id, name, kind, topic, theme, assignment, position}. */
   channels: [],
+  /** Channels where she's written something you haven't seen yet. */
+  unread: new Set(),
   /** Id of the open channel, or null if there are no channels. */
   channelId: null,
   /** Connection profiles: {id, name, model, temperature, maxTokens, topP, reasoningEffort, supportsTools, quirkPrompt, extraParams}. */
@@ -163,16 +169,6 @@ function checkForUpdate(serverVersion) {
   }
 }
 
-/** Ask the server for its app version (used when you come back to the app). */
-async function checkServerVersion() {
-  try {
-    const data = await api("GET", "/api/state");
-    checkForUpdate(data.appVersion);
-  } catch {
-    // Server not running right now; nothing to compare.
-  }
-}
-
 // ------------------------------------------------------------- channels
 
 /**
@@ -186,6 +182,8 @@ async function openChannel(channelId) {
   state.channelId = channelId;
   state.editingId = null;
   state.messages = [];
+  state.unread.delete(channelId);
+  resetReveal();
   hideError();
 
   // Put the channel in the address bar without adding a history entry for
@@ -218,19 +216,86 @@ function channelFromAddress() {
   return state.channels.some((c) => c.id === id) ? id : null;
 }
 
+async function createChannel(event) {
+  event.preventDefault();
+  const form = $("new-channel-form").elements;
+  const body = { name: form.name.value, topic: form.topic.value, kind: form.kind?.value || "text" };
+  try {
+    const { channel, channels } = await api("POST", "/api/channels", body);
+    state.channels = channels;
+    $("new-channel-dialog").close();
+    closeSidebar();
+    openChannel(channel.id);
+  } catch (error) {
+    showFormError($("new-channel-form"), error.message);
+  }
+}
+
 async function saveChannel(event) {
   event.preventDefault();
   const channel = currentChannel();
   const form = els.channelForm.elements;
-  const body = { name: form.name.value, theme: form.theme.value || null, assignment: form.assignment.value || null };
+  const body = {
+    name: form.name.value,
+    topic: form.topic.value,
+    theme: form.theme.value || null,
+    assignment: form.assignment.value || null,
+  };
   try {
     const { channel: updated } = await api("PATCH", `/api/channels/${encodeURIComponent(channel.id)}`, body);
     updateChannelInState(updated);
+    // The home channel is an app-wide setting.
+    const isHome = homeChannelId() === channel.id;
+    if (form.home.checked !== isHome && channel.kind === "text") {
+      const { settings } = await api("PUT", "/api/settings", { homeChannelId: form.home.checked ? channel.id : "" });
+      state.settings = settings;
+    }
     els.channelDialog.close();
     renderAll();
   } catch (error) {
     showFormError(els.channelForm, error.message);
   }
+}
+
+/** Move the open channel one place up (-1) or down (+1) in the sidebar. */
+async function moveChannel(step) {
+  const ids = state.channels.map((c) => c.id);
+  const from = ids.indexOf(state.channelId);
+  const to = from + step;
+  if (to < 0 || to >= ids.length) return;
+  // Swap the two neighbours.
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+  try {
+    const { channels } = await api("PUT", "/api/channels/order", { ids });
+    state.channels = channels;
+    renderAll();
+  } catch (error) {
+    showFormError(els.channelForm, error.message);
+  }
+}
+
+async function deleteChannel() {
+  const channel = currentChannel();
+  if (!confirm(`Delete #${channel.name} and every message in it? This can't be undone.`)) return;
+  try {
+    const { channels, settings } = await api("DELETE", `/api/channels/${encodeURIComponent(channel.id)}`, {});
+    state.channels = channels;
+    state.settings = settings;
+    state.drafts.delete(channel.id);
+    els.channelDialog.close();
+    openChannel(state.channels[0]?.id ?? null);
+  } catch (error) {
+    showFormError(els.channelForm, error.message);
+  }
+}
+
+/**
+ * The home channel's id: the one chosen in settings, or the first text
+ * channel. (The server works this out the same way.)
+ */
+function homeChannelId() {
+  const text = state.channels.filter((c) => c.kind === "text");
+  return (text.find((c) => c.id === state.settings.homeChannelId) ?? text[0])?.id ?? null;
 }
 
 async function clearChannel() {
@@ -253,65 +318,132 @@ function updateChannelInState(channel) {
 
 // ------------------------------------------------------ messages & turns
 
-/**
- * Requests from *this* page that make her write, by channel id.
- * Each is `{ startedAt, onAbandon }`; see `withBusyChannel` and `checkBusy`.
- */
-const pendingRequests = new Map();
-
-/**
- * Run a request that makes her write in a channel: marks the channel busy
- * while it runs, and redraws afterwards.
+/*
+ * How her replies reach the page (stage 2).
  *
- * @param work       Does the request. It receives `stillMine()`, which turns
- *                   false if the request was abandoned (you pressed Stop, or
- *                   the page decided the request was lost). An abandoned
- *                   request's late answer must be ignored: the channel has
- *                   already been reloaded from the server.
- * @param onAbandon  Optional. Called with the reloaded messages if the
- *                   request is abandoned while you're in its channel.
+ * When you send a bubble, the server saves it and answers straight away. She
+ * replies a few seconds after your *last* bubble (see src/replies.ts), and
+ * that reply arrives through the events stream (see "Live events" below),
+ * not as the answer to a request. So there's one way in for new messages,
+ * `receiveMessages`, whether they come from the stream or from a request
+ * like Regenerate. Messages already on screen are skipped, so hearing about
+ * one twice is harmless.
+ *
+ * Her new bubbles don't all appear at once. They go into `reveal.queue`
+ * and appear one at a time, with the typing indicator in between, each
+ * taking `typingBaseMs + characters × typingPerCharMs`. Double-tapping the
+ * typing indicator shows the rest straight away. History (opening a
+ * channel, reloading) always appears instantly.
  */
-async function withBusyChannel(channelId, work, onAbandon) {
-  const request = { startedAt: Date.now(), onAbandon };
-  pendingRequests.set(channelId, request);
-  state.busy.add(channelId);
-  renderAll();
-  if (channelId === state.channelId) scrollToBottom();
-  startBusyWatch();
 
-  const stillMine = () => pendingRequests.get(channelId) === request;
-  try {
-    await work(stillMine);
-  } finally {
-    if (stillMine()) {
-      pendingRequests.delete(channelId);
-      state.busy.delete(channelId);
-      renderAll();
-      if (channelId === state.channelId) scrollToBottom();
+/** Her bubbles waiting to appear in the open channel, and the timer for the next. */
+const reveal = { queue: [], timer: null };
+
+/** Your bubbles on their way to the server, shown faded until it confirms them. */
+let placeholderCount = 0;
+
+/**
+ * Take in messages the server says are new: from the events stream, or the
+ * answer to a request.
+ *
+ * @param replacedIds  Messages these replace (a regeneration).
+ */
+function receiveMessages(channelId, messages, replacedIds = []) {
+  if (channelId !== state.channelId) {
+    // Another channel: just mark it unread if she wrote something there.
+    if (messages.some((m) => m.author === "kitsikai")) {
+      state.unread.add(channelId);
+      renderSidebar();
+    }
+    return;
+  }
+  if (replacedIds.length) {
+    const replaced = new Set(replacedIds);
+    state.messages = state.messages.filter((m) => !replaced.has(m.id));
+    reveal.queue = reveal.queue.filter((m) => !replaced.has(m.id));
+  }
+  const known = (id) => state.messages.some((m) => m.id === id) || reveal.queue.some((m) => m.id === id);
+  for (const message of messages) {
+    if (known(message.id)) continue;
+    if (message.author === "user") {
+      // Your bubble: it replaces its faded placeholder, if there's one.
+      const placeholder = state.messages.find((m) => m.pending && m.content === message.content);
+      if (placeholder) state.messages[state.messages.indexOf(placeholder)] = message;
+      else state.messages.push(message);
+    } else {
+      reveal.queue.push(message);
     }
   }
+  renderAll();
+  scrollToBottom();
+  pumpReveal();
+}
+
+/** How long one of her bubbles takes to "type", in milliseconds. */
+function typingDelay(message) {
+  const { typingBaseMs, typingPerCharMs } = state.settings;
+  return typingBaseMs + message.content.length * typingPerCharMs;
 }
 
 /**
- * Stop waiting for this page's request in a channel. Returns the request
- * (or undefined if there wasn't one), so its `onAbandon` can still be run.
+ * Show her next waiting bubble when it's time. The first bubble of a reply
+ * appears as soon as it arrives (writing it took time already); each one
+ * after it waits its typing delay, with the typing indicator showing.
  */
-function abandonRequest(channelId) {
-  const request = pendingRequests.get(channelId);
-  pendingRequests.delete(channelId);
-  state.busy.delete(channelId);
-  return request;
+function pumpReveal() {
+  if (reveal.timer || reveal.queue.length === 0) return;
+  const next = reveal.queue[0];
+  const previous = state.messages.at(-1);
+  const continuesReply = previous && previous.author === "kitsikai" && previous.turnId === next.turnId;
+  if (!continuesReply) {
+    showNextBubble();
+    pumpReveal();
+    return;
+  }
+  reveal.timer = setTimeout(() => {
+    reveal.timer = null;
+    showNextBubble();
+    pumpReveal();
+  }, typingDelay(next));
+  renderComposer();
 }
 
-/** Reload the open channel's messages, e.g. after a turn was stopped. */
-async function refreshMessages(onAbandon) {
+function showNextBubble() {
+  state.messages.push(reveal.queue.shift());
+  renderMessages();
+  renderComposer();
+  scrollToBottom();
+}
+
+/** Double-tapping the typing indicator: show everything she's already written. */
+function skipReveal() {
+  clearTimeout(reveal.timer);
+  reveal.timer = null;
+  state.messages.push(...reveal.queue);
+  reveal.queue = [];
+  renderMessages();
+  renderComposer();
+  scrollToBottom();
+}
+
+/** Forget waiting bubbles (switching channels: they'll load as history). */
+function resetReveal() {
+  clearTimeout(reveal.timer);
+  reveal.timer = null;
+  reveal.queue = [];
+}
+
+/** Reload the open channel's messages, e.g. after reconnecting. */
+async function refreshMessages() {
   const channelId = state.channelId;
   if (!channelId) return;
   try {
     const { messages } = await api("GET", channelPath("messages", channelId));
     if (state.channelId !== channelId) return;
-    state.messages = messages;
-    onAbandon?.(messages);
+    // Keep bubbles that are still on their way to the server.
+    const pending = state.messages.filter((m) => m.pending);
+    resetReveal();
+    state.messages = [...messages, ...pending];
   } catch (error) {
     showError(`Couldn't reload this channel: ${error.message}`, () => refreshMessages());
   }
@@ -320,146 +452,85 @@ async function refreshMessages(onAbandon) {
 }
 
 /**
- * The Stop button: ask the server to stop her turn in the open channel, stop
- * waiting for it here, and reload the channel so it shows exactly what was
- * saved (your message, if you'd just sent one; no reply).
+ * The Stop button: stop her reply in the open channel (or her wait before
+ * replying). Nothing she was writing is saved.
  */
 async function stopTurn() {
   const channelId = state.channelId;
-  const request = abandonRequest(channelId);
   hideError();
-  renderAll();
   try {
     await api("POST", channelPath("cancel", channelId), {});
   } catch (error) {
     showError(`Couldn't reach the server to stop the reply: ${error.message}`, null);
   }
-  await refreshMessages(request?.onAbandon);
-}
-
-/*
- * Checking in with the server while anything is busy.
- *
- * A request can be lost without ever failing: on a phone, the connection
- * can quietly drop when the app goes to the background or the screen locks,
- * and the page would wait for an answer that never comes, with the channel
- * stuck on "typing…". So while any channel is busy, the page asks the server
- * every few seconds which channels are *really* busy, and un-sticks the ones
- * the server has finished with. (From Aettica.)
- */
-
-/** How often to check, in milliseconds. */
-const BUSY_CHECK_INTERVAL = 3000;
-/** A request younger than this is never treated as lost: it may simply not have reached the server yet. */
-const LOST_REQUEST_GRACE = 8000;
-
-let busyWatch = null;
-
-function startBusyWatch() {
-  if (!busyWatch) busyWatch = setInterval(checkBusy, BUSY_CHECK_INTERVAL);
-}
-
-async function checkBusy() {
-  if (state.busy.size === 0) {
-    clearInterval(busyWatch);
-    busyWatch = null;
-    return;
-  }
-
-  let serverBusy;
-  try {
-    const data = await api("GET", "/api/state");
-    serverBusy = new Set(data.busyChannels);
-    checkForUpdate(data.appVersion);
-  } catch {
-    return; // server unreachable for a moment; try again next time
-  }
-
-  for (const channelId of [...state.busy]) {
-    if (serverBusy.has(channelId)) continue;
-    const request = pendingRequests.get(channelId);
-    if (request && Date.now() - request.startedAt < LOST_REQUEST_GRACE) continue;
-    // The server is done, but this page never heard back. Catch up.
-    abandonRequest(channelId);
-    if (channelId === state.channelId) await refreshMessages(request?.onAbandon);
-  }
-  for (const channelId of serverBusy) state.busy.add(channelId);
+  state.busy.delete(channelId);
   renderAll();
 }
 
 /**
- * Send what's in the text box. The server saves it and she replies in the
- * same request.
+ * Send what's in the text box as one bubble. Each send is its own bubble,
+ * like texting; she replies a few seconds after your last one.
  */
 async function sendMessage() {
   const channelId = state.channelId;
-  const content = els.input.value;
-  if (!channelId || content.trim() === "" || state.busy.has(channelId)) return;
+  const content = els.input.value.trim();
+  if (!channelId || content === "") return;
 
   hideError();
-  // Show your message straight away, as a placeholder, while she writes.
-  // It's swapped for the saved copy when the server answers.
-  const sentAt = new Date();
+  // Show your bubble straight away, faded, until the server has it.
   const placeholder = {
-    id: "pending",
+    id: `pending-${++placeholderCount}`,
+    pending: true,
     channelId,
     author: "user",
-    content: content.trim(),
+    content,
     turnId: null,
-    createdAt: sentAt.toISOString(),
+    createdAt: new Date().toISOString(),
   };
   state.messages.push(placeholder);
   els.input.value = "";
   state.drafts.delete(channelId);
   autoGrow();
+  renderMessages();
+  scrollToBottom();
 
-  // If the request is abandoned (Stop, or lost) and the server never saved
-  // your message, put your text back in the box so it isn't lost.
-  const restoreIfUnsaved = (messages) => {
-    const saved = messages.some((m) => m.author === "user" && new Date(m.createdAt) >= sentAt - 2000);
-    if (!saved && els.input.value === "") {
+  try {
+    const { userMessages } = await api("POST", channelPath("messages", channelId), { content });
+    if (state.channelId !== channelId) return; // you've moved on; it'll load when you return
+    const saved = userMessages[0];
+    const index = state.messages.indexOf(placeholder);
+    if (index >= 0) {
+      if (state.messages.some((m) => m.id === saved.id)) state.messages.splice(index, 1);
+      else state.messages[index] = saved;
+    }
+    renderMessages();
+  } catch (error) {
+    // Nothing was saved (e.g. the server is down), so put your text back in
+    // the box; "Try again" simply sends it again.
+    state.messages = state.messages.filter((m) => m !== placeholder);
+    renderMessages();
+    if (state.channelId === channelId && els.input.value === "") {
       els.input.value = content;
       autoGrow();
     }
-  };
+    showError(error.message, sendMessage);
+  }
+}
 
-  await withBusyChannel(
-    channelId,
-    async (stillMine) => {
-      try {
-        const data = await api("POST", channelPath("messages", channelId), { content });
-        if (!stillMine()) return; // abandoned; the channel was already reloaded
-        if (state.channelId !== channelId) return; // you've moved on; it'll load when you return
-        state.messages = state.messages.filter((m) => m !== placeholder);
-        state.messages.push(...data.userMessages);
-        if (data.kitsikaiMessages) {
-          acceptTurn(data);
-        } else if (data.error) {
-          // Your message is saved but the reply failed. "Try again" asks her
-          // for a turn, which answers the message you already sent.
-          showError(data.error, herTurn);
-        }
-      } catch (error) {
-        if (!stillMine()) return;
-        // Nothing was saved (e.g. the server is down), so put your text back
-        // in the box; "Try again" simply sends it again.
-        state.messages = state.messages.filter((m) => m !== placeholder);
-        if (state.channelId === channelId) {
-          els.input.value = content;
-          autoGrow();
-          showError(error.message, sendMessage);
-        } else {
-          state.drafts.set(channelId, content);
-        }
-      }
-    },
-    restoreIfUnsaved,
-  );
+/**
+ * While you type, tell the server now and then, so that if she's waiting to
+ * reply she waits a little longer (see `typing` in src/replies.ts).
+ */
+let lastTypingPing = 0;
+function typingPing() {
+  if (!state.channelId || els.input.value.trim() === "" || Date.now() - lastTypingPing < 1500) return;
+  lastTypingPing = Date.now();
+  api("POST", channelPath("typing"), {}).catch(() => {});
 }
 
 /** Let her text without a new message from you. */
 async function herTurn() {
-  await runTurn("turn", acceptTurn, herTurn);
+  await runTurn("turn", herTurn);
 }
 
 /**
@@ -469,44 +540,33 @@ async function herTurn() {
  *                   profile or roulette picks again.
  */
 async function regenerate(profileId) {
-  await runTurn(
-    "regenerate",
-    (data) => {
-      const replaced = new Set(data.replacedIds);
-      state.messages = state.messages.filter((m) => !replaced.has(m.id));
-      acceptTurn(data);
-    },
-    () => regenerate(profileId),
-    profileId ? { profileId } : {},
-  );
-}
-
-/** Take in a turn's result: her new messages. */
-function acceptTurn(data) {
-  state.messages.push(...data.kitsikaiMessages);
+  await runTurn("regenerate", () => regenerate(profileId), profileId ? { profileId } : {});
 }
 
 /**
- * Shared wrapper for her turns in the open channel.
+ * Shared wrapper for her turns in the open channel. The server announces
+ * that she's writing and what she wrote through the events stream too; the
+ * answer here covers the case where the stream is reconnecting.
  *
- * @param action     "turn" or "regenerate" (the end of the API path).
- * @param onSuccess  Updates `state.messages` with the server's answer. Not
- *                   called if the turn was stopped.
- * @param retry      What "Try again" should do if it fails.
- * @param body       Sent with the request (e.g. the profile to regenerate with).
+ * @param action  "turn" or "regenerate" (the end of the API path).
+ * @param retry   What "Try again" should do if it fails.
+ * @param body    Sent with the request (e.g. the profile to regenerate with).
  */
-async function runTurn(action, onSuccess, retry, body = {}) {
+async function runTurn(action, retry, body = {}) {
   const channelId = state.channelId;
   if (!channelId || state.busy.has(channelId)) return;
   hideError();
-  await withBusyChannel(channelId, async (stillMine) => {
-    try {
-      const data = await api("POST", channelPath(action, channelId), body);
-      if (stillMine() && state.channelId === channelId && data.kitsikaiMessages) onSuccess(data);
-    } catch (error) {
-      if (stillMine() && state.channelId === channelId) showError(error.message, retry);
-    }
-  });
+  state.busy.add(channelId);
+  renderAll();
+  try {
+    const data = await api("POST", channelPath(action, channelId), body);
+    state.busy.delete(channelId);
+    if (data.kitsikaiMessages) receiveMessages(channelId, data.kitsikaiMessages, data.replacedIds ?? []);
+  } catch (error) {
+    state.busy.delete(channelId);
+    if (state.channelId === channelId) showError(error.message, retry);
+  }
+  renderAll();
 }
 
 async function saveEdit(id, content) {
@@ -531,6 +591,81 @@ async function deleteMessage(id) {
   }
 }
 
+// ------------------------------------------------------------ live events
+
+/*
+ * The events stream (see src/events.ts): one request that stays open, down
+ * which the server sends a line whenever something happens. The browser's
+ * EventSource reconnects by itself if the connection drops (the phone
+ * locks, the server restarts). Events can be missed while it's
+ * disconnected, so every reconnect reloads what's on screen.
+ */
+
+let eventSource = null;
+let connectedBefore = false;
+
+function connectEvents() {
+  eventSource = new EventSource("/api/events");
+  eventSource.addEventListener("open", () => {
+    if (connectedBefore) catchUp();
+    connectedBefore = true;
+  });
+  eventSource.addEventListener("message", (event) => {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    handleEvent(data);
+  });
+}
+
+/** One event from the server. */
+function handleEvent(event) {
+  switch (event.type) {
+    case "messages":
+      receiveMessages(event.channelId, event.messages, event.replacedIds ?? []);
+      break;
+    case "deleted":
+      if (event.channelId === state.channelId) {
+        const gone = new Set(event.ids);
+        state.messages = state.messages.filter((m) => !gone.has(m.id));
+        reveal.queue = reveal.queue.filter((m) => !gone.has(m.id));
+        renderMessages();
+      }
+      break;
+    case "busy":
+      state.busy = new Set(event.channelIds);
+      renderSidebar();
+      renderComposer();
+      if (state.busy.has(state.channelId)) scrollToBottom();
+      break;
+    case "turn-error":
+      if (event.channelId === state.channelId) showError(event.error, herTurn);
+      break;
+    case "channels":
+      state.channels = event.channels;
+      if (!currentChannel()) openChannel(state.channels[0]?.id ?? null);
+      else renderAll();
+      break;
+  }
+}
+
+/** After a reconnect, or coming back to the app: reload what's on screen. */
+async function catchUp() {
+  try {
+    await loadState();
+  } catch {
+    return; // server not reachable yet; the next reconnect tries again
+  }
+  if (!currentChannel()) {
+    await openChannel(state.channels[0]?.id ?? null);
+    return;
+  }
+  await refreshMessages();
+}
+
 // -------------------------------------------------------------- rendering
 
 /** Redraw everything from `state`. */
@@ -552,6 +687,8 @@ function renderSidebar() {
       link.href = `#/channel/${channel.id}`;
       link.dataset.kind = channel.kind;
       if (channel.id === state.channelId) link.setAttribute("aria-current", "page");
+      if (channel.id === homeChannelId()) link.dataset.home = "true";
+      link.title = [channel.id === homeChannelId() ? "Home channel" : "", channel.topic].filter(Boolean).join(": ");
 
       const name = document.createElement("span");
       name.className = "channel-link-name";
@@ -562,6 +699,12 @@ function renderSidebar() {
         const dot = document.createElement("span");
         dot.className = "channel-busy";
         dot.title = `${herName()} is typing here`;
+        link.append(dot);
+      } else if (state.unread.has(channel.id)) {
+        link.classList.add("unread");
+        const dot = document.createElement("span");
+        dot.className = "channel-unread";
+        dot.title = "New messages";
         link.append(dot);
       }
       item.append(link);
@@ -640,7 +783,7 @@ function renderChannelHeader() {
   els.channelView.dataset.channelKind = channel?.kind ?? "";
 
   els.channelName.textContent = channel?.name ?? "";
-  els.channelTopic.textContent = "";
+  els.channelTopic.textContent = channel?.topic ?? "";
   $("channel-settings-button").hidden = !channel;
   document.title = channel ? `#${channel.name} · ${herName()}` : herName();
 }
@@ -706,7 +849,7 @@ function emptyNote(text) {
  */
 function renderMessage(message, { continued = false, regenerate: showRegenerate = false } = {}) {
   const name = message.author === "user" ? state.settings.userName || "You" : herName();
-  const pending = message.id === "pending";
+  const pending = Boolean(message.pending);
 
   const root = document.createElement("article");
   root.className = ["message", pending && "pending", continued && "continued"].filter(Boolean).join(" ");
@@ -817,10 +960,15 @@ function renderComposer() {
   els.composer.hidden = !channel;
   if (!channel) return;
 
+  // The typing indicator shows while she's writing (busy), and while her
+  // bubbles are still appearing one by one (double-tap it to skip ahead).
   const busy = state.busy.has(channel.id);
-  els.status.hidden = !busy;
+  const revealing = reveal.timer !== null;
+  els.status.hidden = !busy && !revealing;
+  els.status.classList.toggle("revealing", revealing);
   $("status-text").textContent = `${herName()} is typing…`;
-  els.send.disabled = busy;
+  $("status").title = revealing ? "Double-tap to skip ahead" : "";
+  $("stop-button").hidden = !busy;
   els.turn.disabled = busy;
   els.input.placeholder = `Message #${channel.name}`;
 }
@@ -1444,6 +1592,9 @@ function openSettings() {
   form.persona.value = s.persona;
   fillAssignmentSelect(form.chatAssignment, s.chatAssignment);
   form.historyLimit.value = s.historyLimit;
+  form.replyDebounceSeconds.value = s.replyDebounceSeconds;
+  form.typingBaseMs.value = s.typingBaseMs;
+  form.typingPerCharMs.value = s.typingPerCharMs;
   hideFormError(els.settingsForm);
   els.settingsDialog.showModal();
 }
@@ -1461,6 +1612,9 @@ async function saveSettings(event) {
       chatAssignment: form.chatAssignment.value,
       // Number boxes give text; the server wants numbers.
       historyLimit: Number(form.historyLimit.value),
+      replyDebounceSeconds: Number(form.replyDebounceSeconds.value),
+      typingBaseMs: Number(form.typingBaseMs.value),
+      typingPerCharMs: Number(form.typingPerCharMs.value),
     });
     state.settings = data.settings;
     els.settingsDialog.close();
@@ -1476,6 +1630,9 @@ function openChannelSettings() {
   if (!channel) return;
   const form = els.channelForm.elements;
   form.name.value = channel.name;
+  form.topic.value = channel.topic;
+  form.home.checked = homeChannelId() === channel.id;
+  $("channel-home-row").hidden = channel.kind !== "text";
   form.theme.replaceChildren(new Option("Same as the app theme", ""), ...state.themes.map((t) => new Option(t.name, t.id)));
   form.theme.value = channel.theme ?? "";
   fillAssignmentSelect(
@@ -1485,6 +1642,13 @@ function openChannelSettings() {
   );
   hideFormError(els.channelForm);
   els.channelDialog.showModal();
+}
+
+/** The new channel dialog. */
+function openNewChannel() {
+  $("new-channel-form").reset();
+  hideFormError($("new-channel-form"));
+  $("new-channel-dialog").showModal();
 }
 
 /**
@@ -1881,7 +2045,25 @@ els.input.addEventListener("keydown", (event) => {
     sendMessage();
   }
 });
-els.input.addEventListener("input", autoGrow);
+els.input.addEventListener("input", () => {
+  autoGrow();
+  typingPing();
+});
+
+// Double-tap the typing indicator to skip her typing delays. (A double tap
+// is two taps within 350 ms; checked by hand because phones don't always
+// send a dblclick.)
+let lastStatusTap = 0;
+els.status.addEventListener("pointerup", (event) => {
+  if (event.target.closest("button")) return;
+  const now = Date.now();
+  if (now - lastStatusTap < 350) {
+    skipReveal();
+    lastStatusTap = 0;
+  } else {
+    lastStatusTap = now;
+  }
+});
 
 els.turn.addEventListener("click", herTurn);
 $("stop-button").addEventListener("click", stopTurn);
@@ -1905,10 +2087,10 @@ $("notice-dismiss").addEventListener("click", () => ($("notice").hidden = true))
 els.messages.addEventListener("scroll", watchForStutter, { passive: true });
 $("update-reload").addEventListener("click", () => location.reload());
 
-// Coming back to the app (switching to it, unlocking the phone) is when an
-// update is most likely to have happened while it sat in the background.
+// Coming back to the app (switching to it, unlocking the phone): catch up on
+// anything missed while it sat in the background, and check for an update.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") checkServerVersion();
+  if (document.visibilityState === "visible") catchUp();
 });
 els.errorRetry.addEventListener("click", () => state.retry && state.retry());
 $("error-dismiss").addEventListener("click", hideError);
@@ -1933,6 +2115,11 @@ els.loadModels.addEventListener("click", loadModels);
 
 $("channel-settings-button").addEventListener("click", openChannelSettings);
 els.channelForm.addEventListener("submit", saveChannel);
+$("channel-move-up").addEventListener("click", () => moveChannel(-1));
+$("channel-move-down").addEventListener("click", () => moveChannel(1));
+$("delete-channel").addEventListener("click", deleteChannel);
+$("new-channel-button").addEventListener("click", openNewChannel);
+$("new-channel-form").addEventListener("submit", createChannel);
 $("preview-prompt").addEventListener("click", previewPrompt);
 $("clear-channel").addEventListener("click", clearChannel);
 
@@ -1977,9 +2164,7 @@ if (readLocal(LAST_THEME_KEY)) setStylesheet("theme-app", `/themes/${readLocal(L
 
 Promise.all([loadState(), loadThemes()])
   .then(() => {
-    // A turn may already be running (from another tab, or from before a
-    // reload): keep an eye on it.
-    if (state.busy.size > 0) startBusyWatch();
+    connectEvents();
     return openChannel(channelFromAddress() ?? state.channels[0]?.id ?? null);
   })
   .catch((error) => showError(`Couldn't load Kitsikai: ${error.message}`, () => location.reload()));

@@ -49,20 +49,23 @@ describe("a new server", () => {
 });
 
 describe("sending a message", () => {
-  test("saves your message and her reply, with the model and profile that wrote it", async () => {
+  test("saves your bubble at once, and her reply comes after the wait, with the model and profile", async () => {
     fake.replies.push({ content: "heyyy how was your day" });
     const { status, data } = await call("POST", `/api/channels/${general.id}/messages`, { content: "  hi!  " });
 
     expect(status).toBe(200);
     expect(data.userMessages[0]).toMatchObject({ content: "hi!", author: "user" });
+    expect(data.kitsikaiMessages).toBeUndefined();
+    expect(app.replies.isWaiting(general.id)).toBe(true);
+
+    await app.replies.flush();
     const [profile] = app.store.profiles.list();
-    expect(data.kitsikaiMessages[0]).toMatchObject({
+    expect(app.store.getMessages(general.id).at(-1)).toMatchObject({
       content: "heyyy how was your day",
       author: "kitsikai",
       model: profile!.model,
       profile: profile!.name,
     });
-    expect(app.store.getMessages(general.id)).toHaveLength(2);
   });
 
   test("sends her prompt stack and the profile's settings to the API", async () => {
@@ -70,6 +73,7 @@ describe("sending a message", () => {
     app.store.profiles.update(profile!.id, { temperature: 0.7, maxTokens: 321, model: "some/model", quirkPrompt: "No emojis." });
     app.store.updateSettings({ persona: "You love frogs.", userName: "Sam" });
     await call("POST", `/api/channels/${general.id}/messages`, { content: "hello" });
+    await app.replies.flush();
 
     const request = fake.requests[0]!;
     expect(request).toMatchObject({ model: "some/model", temperature: 0.7, max_tokens: 321, auth: "Bearer test-key" });
@@ -81,11 +85,14 @@ describe("sending a message", () => {
     expect(request.messages.at(-1)).toEqual({ role: "user", content: "hello" });
   });
 
-  test("keeps your message when the reply fails, and her turn answers it later", async () => {
+  test("keeps your message when the reply fails, tells the app, and her turn answers it later", async () => {
+    const events: any[] = [];
+    app.events.listen((event) => events.push(event));
     fake.replies.push({ status: 500, error: "boom" });
-    const { status, data } = await call("POST", `/api/channels/${general.id}/messages`, { content: "you there?" });
-    expect(status).toBe(200);
-    expect(data.error).toContain("boom");
+    await call("POST", `/api/channels/${general.id}/messages`, { content: "you there?" });
+    await app.replies.flush();
+    expect(events.find((e) => e.type === "turn-error")).toMatchObject({ channelId: general.id });
+    expect(events.find((e) => e.type === "turn-error").error).toContain("boom");
     expect(app.store.getMessages(general.id).map((m) => m.author)).toEqual(["user"]);
 
     fake.replies.push({ content: "sorry!! here" });
@@ -98,17 +105,6 @@ describe("sending a message", () => {
   test("refuses empty messages and unknown channels", async () => {
     expect((await call("POST", `/api/channels/${general.id}/messages`, { content: "   " })).status).toBe(400);
     expect((await call("POST", `/api/channels/nope/messages`, { content: "hi" })).status).toBe(404);
-  });
-
-  test("refuses a second message while she's writing, without saving it", async () => {
-    fake.replies.push({ content: "slow", delayMs: 150 });
-    const first = call("POST", `/api/channels/${general.id}/messages`, { content: "one" });
-    await Bun.sleep(30);
-    expect(app.kitsikai.busyChannels()).toEqual([general.id]);
-    const second = await call("POST", `/api/channels/${general.id}/messages`, { content: "two" });
-    expect(second.status).toBe(409);
-    await first;
-    expect(app.store.getMessages(general.id).map((m) => m.content)).toEqual(["one", "slow"]);
   });
 });
 

@@ -3,7 +3,17 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { buildPromptStack, describeNow, FRAMING, NUDGES, renderLayers, toChatHistory } from "../src/prompt.ts";
+import {
+  buildPromptStack,
+  describeChannels,
+  describeNow,
+  FRAMING,
+  NUDGES,
+  renderLayers,
+  stripTimeMarkers,
+  timeMarker,
+  toChatHistory,
+} from "../src/prompt.ts";
 import { defaultSettings } from "../src/store.ts";
 import type { Channel, Message } from "../src/types.ts";
 
@@ -11,14 +21,15 @@ const channel: Channel = {
   id: "c1",
   name: "general",
   kind: "text",
+  topic: "",
   theme: null,
   assignment: null,
   position: 0,
   createdAt: "2026-09-26T10:00:00.000Z",
 };
 
-function message(author: Message["author"], content: string): Message {
-  return { id: crypto.randomUUID(), channelId: "c1", author, content, turnId: null, createdAt: new Date().toISOString() };
+function message(author: Message["author"], content: string, createdAt = new Date()): Message {
+  return { id: crypto.randomUUID(), channelId: "c1", author, content, turnId: null, createdAt: createdAt.toISOString() };
 }
 
 const now = new Date(2026, 8, 26, 16, 12); // Saturday, September 26, 2026, 4:12 PM (local time)
@@ -30,6 +41,8 @@ describe("buildPromptStack", () => {
     expect(system!.content).toStartWith(`## Who you are\n\n${FRAMING}`);
     expect(system!.content).toContain("You're Kitsikai");
     expect(system!.content).toContain("## How you text");
+    expect(system!.content).toContain("<cht>");
+    expect(system!.content).toContain("## Where you're texting\n\nYou're in #general.");
     expect(system!.content).toContain("## Right now\n\nIt's Saturday, September 26, 2026, 4:12 PM.");
     expect(system!.content).not.toContain("## Model notes");
   });
@@ -52,17 +65,54 @@ describe("buildPromptStack", () => {
 });
 
 describe("toChatHistory", () => {
-  test("merges messages in a row from the same person, and skips empty ones", () => {
+  test("joins a run of bubbles with <cht>, and skips empty ones", () => {
     const history = toChatHistory([
       message("user", "one"),
       message("user", "two"),
       message("kitsikai", "  "),
       message("kitsikai", "three"),
+      message("kitsikai", "four"),
     ]);
     expect(history).toEqual([
-      { role: "user", content: "one\n\ntwo" },
-      { role: "assistant", content: "three" },
+      { role: "user", content: "one <cht> two" },
+      { role: "assistant", content: "three <cht> four" },
     ]);
+  });
+
+  test("notes when an hour or more has passed", () => {
+    const morning = new Date(2026, 8, 26, 9, 0);
+    const history = toChatHistory([
+      message("user", "morning", morning),
+      message("kitsikai", "hey", new Date(2026, 8, 26, 9, 5)),
+      message("user", "back from work", new Date(2026, 8, 26, 17, 30)),
+    ]);
+    expect(history.map((m) => m.content)).toEqual(["morning", "hey", "[5:30 PM, 8 hours later] back from work"]);
+  });
+});
+
+describe("time notes", () => {
+  test("say the time and the gap, and the day when it changed", () => {
+    const before = new Date(2026, 8, 26, 21, 0);
+    expect(timeMarker(before, new Date(2026, 8, 26, 21, 40))).toBe("");
+    expect(timeMarker(before, new Date(2026, 8, 26, 23, 0))).toBe("[11:00 PM, 2 hours later]");
+    expect(timeMarker(before, new Date(2026, 8, 27, 9, 0))).toBe("[Sun 9:00 AM, 12 hours later]");
+    expect(timeMarker(before, new Date(2026, 8, 29, 9, 0))).toBe("[Tue 9:00 AM, 3 days later]");
+  });
+
+  test("are taken out of her replies if she copies them", () => {
+    expect(stripTimeMarkers("[11:00 PM, 2 hours later] hi")).toBe("hi");
+    expect(stripTimeMarkers("[Sun 9:00 AM, 12 hours later] morning")).toBe("morning");
+    expect(stripTimeMarkers("I'm [not a marker] really")).toBe("I'm [not a marker] really");
+  });
+});
+
+describe("describeChannels", () => {
+  test("names this channel and the other text channels, with topics", () => {
+    const work = { ...channel, id: "c2", name: "work", topic: "shifts" };
+    expect(describeChannels(channel, [channel, work])).toBe(
+      "You're in #general. The channels split up your conversations, but you're one person: you remember everything from all of them.\n" +
+        'The other channels: #work (topic: "shifts").',
+    );
   });
 });
 

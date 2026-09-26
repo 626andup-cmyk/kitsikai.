@@ -16,8 +16,11 @@
 export type Author = "user" | "kitsikai";
 
 /**
- * What a channel is. Stage 1 only has one text channel; stage 2 adds the
- * others.
+ * What a channel is, like Discord's channel types.
+ *
+ * - `"text"`: a conversation with her.
+ * - `"planner"` (stage 3) and `"trackers"` (stage 5): opening these shows
+ *   their screen instead of a chat.
  */
 export type ChannelKind = "text";
 
@@ -28,6 +31,11 @@ export interface Channel {
   /** Display name, shown with a `#` in front. */
   name: string;
   kind: ChannelKind;
+  /**
+   * A short description, like Discord's ("work stuff, venting about
+   * shifts"). She sees it, and later uses it to pick where to text you.
+   */
+  topic: string;
   /**
    * The channel's own theme (a theme id), or `null` to use the app theme.
    * It only restyles the channel itself; see `src/themes.ts`.
@@ -86,6 +94,22 @@ export interface Settings {
   chatAssignment: string;
   /** How many of a channel's most recent messages she sees. */
   historyLimit: number;
+  /**
+   * The home channel: where she texts you when nothing fits better (from
+   * stage 8). A channel id, or "" for the first text channel.
+   */
+  homeChannelId: string;
+  /**
+   * How long she waits after your last bubble before replying, in seconds,
+   * so she doesn't answer halfway through your thought.
+   */
+  replyDebounceSeconds: number;
+  /**
+   * How long each of her bubbles takes to "type" in the app, in
+   * milliseconds: `typingBaseMs + characters × typingPerCharMs`.
+   */
+  typingBaseMs: number;
+  typingPerCharMs: number;
   /** The app theme's id (see `src/themes.ts`). "classic" is the default look. */
   appTheme: string;
   /**

@@ -117,6 +117,16 @@ export const MIGRATIONS: Migration[] = [
     PRIMARY KEY (roulette_id, profile_id)
   );
   `,
+
+  // ---------------------------------------------------------------- 2
+  // Stage 2: channel topics. (Bubbles need no new columns: the bubbles of
+  // one reply are messages sharing a turn id, which stage 1 already has.)
+  //
+  // ALTER TABLE ... ADD COLUMN adds a column to an existing table. Every
+  // existing row gets the DEFAULT value, so old data stays valid.
+  `
+  ALTER TABLE channels ADD COLUMN topic TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 /**

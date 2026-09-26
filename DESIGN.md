@@ -276,7 +276,7 @@ Parked until the core works.
 
 ## Open questions
 
-- [ ] Is Jev reachable? nanoGPT's model page showed "Unavailable" on Sep 26, 2026. Test a call before stage 7. (Stage 7 was built without being able to reach it: Settings → **Test Jev** answers this and shows the raw reply, the request format is isolated in `jevRequestBody`, and a fallback profile keeps her memory working meanwhile.)
+- [x] Is Jev reachable? nanoGPT's model page showed "Unavailable" on Sep 26, 2026. Test a call before stage 7. (Yes: the first live Test Jev reached it. Its error showed the questions must be a map keyed by id, each `{type: "choice", instructions, criteria}`; `jevRequestBody` now sends that. See docs/stage-7.md.)
 - [ ] Which vision model reads the schedule screenshots most reliably?
 - [ ] Which models reliably write the `<cht>` bubble format and handle tool calls? ("Test tools" and the tool log will answer the second.)
 - [ ] Good defaults for the snapshot interval (10 min?), processing interval (3 hours?), pin cap (10?), reply debounce (a few seconds?), and typing-delay numbers. (All are settings now, with those defaults; living with them will tell.)

@@ -167,14 +167,14 @@ export class Processing {
       }
       if (note.kind === "remember") {
         questions.push({
-          id: `${id}.pin`,
+          id: `${id}_pin`,
           kind: "yesno",
           question: `Does note ${id} matter so much right now that ${settings.name} should keep it in front of her at all times (pin it)? Only for big things: an exam, a hard week, something they're waiting on.`,
         });
       }
       if (note.kind === "request" && note.request === "unpin" && pins.length) {
         questions.push({
-          id: `${id}.which`,
+          id: `${id}_which`,
           kind: "choice",
           question: `Which of ${settings.name}'s pins do they want her to let go of, in note ${id}?`,
           options: [...ids.pins.keys(), "none of these"],
@@ -256,7 +256,7 @@ export class Processing {
         }
         this.memory.updateNote(note.id, { status: "bringup" }, now);
         write({ action: "bringup", text: note.text, reason: why, ...base });
-        if (tier(answers.get(`${id}.pin`), threshold) === "yes") toPin.push({ note, yours: false });
+        if (tier(answers.get(`${id}_pin`), threshold) === "yes") toPin.push({ note, yours: false });
       } else if (note.kind === "request") {
         if (verdict === "unsure") {
           ask(`whether they still want you to ${note.request === "unpin" ? "let go of" : "pin"}: ${note.text}`, unsure);
@@ -267,12 +267,12 @@ export class Processing {
           continue;
         }
         // Let something go: which pin?
-        const which = confidentChoice(answers.get(`${id}.which`), threshold);
+        const which = confidentChoice(answers.get(`${id}_which`), threshold);
         const pin = which ? ids.pins.get(which) : undefined;
         if (pin && pin.status === "pinned") {
           this.memory.unpin(pin.id, "they asked", now);
           pin.status = "drawer";
-          write({ action: "unpinned", text: pin.text, reason: `they asked (${sure(`${id}.which`, which!)})`, pinId: pin.id, messageId: note.messageId });
+          write({ action: "unpinned", text: pin.text, reason: `they asked (${sure(`${id}_which`, which!)})`, pinId: pin.id, messageId: note.messageId });
           this.memory.updateNote(note.id, { status: "done" }, now);
         } else if (pins.length === 0) {
           this.memory.updateNote(note.id, { status: "tossed" }, now);

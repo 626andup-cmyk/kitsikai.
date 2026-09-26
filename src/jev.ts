@@ -23,11 +23,11 @@
  * ## The request
  *
  * Jev is called through Chat Completions with a "questions" response format
- * (DESIGN.md). The exact shape is in one place, `jevRequestBody`, and the
- * reply is read forgivingly (`readAnswers` accepts several layouts), so if a
- * live test shows TypeSafe's format differs, only those two functions
- * change. Settings → "Test Jev" sends one tiny question and shows the raw
- * reply, for exactly that.
+ * (DESIGN.md): a map of named questions, each a choice with its options
+ * described (`jevRequestBody`). The first live test found the shape (the
+ * questions have to be a map, not a list); the reply is read forgivingly
+ * (`readAnswers` accepts several layouts). Settings → "Test Jev" sends one
+ * tiny question and shows the raw reply, for checking exactly this.
  *
  * ## If Jev isn't reachable
  *
@@ -112,9 +112,29 @@ export function percent(p: number): string {
 // --------------------------------------------------------------- request
 
 /**
+ * What each option means, for Jev: its "criteria". Yes/no questions get the
+ * two plain answers; for the others, the option says what it is.
+ */
+function criteriaOf(question: Question): Record<string, string> {
+  if (question.kind === "yesno") return { yes: "Yes.", no: "No." };
+  return Object.fromEntries(question.options.map((option) => [option, option]));
+}
+
+/**
  * The request body for Jev: Chat Completions, with the state as the message
- * and the questions as a "questions" response format. Isolated here so a
- * live test can adjust it in one place.
+ * and the questions as a "questions" response format. Isolated here so it
+ * can be adjusted in one place.
+ *
+ * The questions are a **map**, keyed by the question's id (the key is only
+ * for matching answers; the model never sees it), and each is a "choice":
+ * instructions, and criteria (every option, with what it means). A yes/no
+ * question is a choice between "yes" and "no". Confirmed against nanoGPT
+ * with a real key (its error: "Jev decision models require a non-empty
+ * questions map") and TypeSafe's documented format:
+ *
+ *   "questions": {
+ *     "t1": { "type": "choice", "instructions": "Did they have a headache?", "criteria": { "yes": "Yes.", "no": "No." } }
+ *   }
  */
 export function jevRequestBody(model: string, state: string, questions: Question[]): Record<string, unknown> {
   return {
@@ -122,12 +142,9 @@ export function jevRequestBody(model: string, state: string, questions: Question
     messages: [{ role: "user", content: state }],
     response_format: {
       type: "questions",
-      questions: questions.map((q) => ({
-        id: q.id,
-        type: "choice",
-        question: q.question,
-        options: optionsOf(q),
-      })),
+      questions: Object.fromEntries(
+        questions.map((q) => [q.id, { type: "choice", instructions: q.question, criteria: criteriaOf(q) }]),
+      ),
     },
     stream: false,
   };
@@ -138,11 +155,14 @@ export function jevRequestBody(model: string, state: string, questions: Question
  *
  *   - `choices[0].message.content` as JSON text, or `.parsed` / `.answers`
  *     on the message, or `answers` / `results` at the top level
- *   - answers as a list (`[{id, selected, probabilities}]`) or an object by
- *     id (`{q1: {...}}`)
- *   - each answer's pick as `selected`, `answer`, `choice`, `option` or
- *     `value`; its probabilities as an object or a list of
+ *   - answers as an object by id (`{q1: {...}}`, TypeSafe's format) or a
+ *     list (`[{id, selected, probabilities}]`)
+ *   - each answer's pick as `choice` (TypeSafe's), `selected`, `answer`,
+ *     `option` or `value`; its probabilities as an object or a list of
  *     `{option, probability}`; `confidence` optional
+ *
+ * TypeSafe documents a choice answer as
+ * `{"type": "choice", "choice": "technical", "probabilities": {...}, "confidence": 0.82}`.
  *
  * Answers to questions that weren't asked, or with a pick that isn't one of
  * the options, are dropped: Jev's answers should always fit, and anything

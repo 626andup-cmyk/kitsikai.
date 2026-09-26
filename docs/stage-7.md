@@ -69,6 +69,19 @@ When this stage was built, TypeSafe's documentation couldn't be reached, and nan
 
 A failed Jev call never stops her from replying: that decision is just skipped this time, and the advanced page says why.
 
+**What the first live test found.** Jev was reachable, and nanoGPT's error said exactly what was wrong: "Jev decision models require a non-empty questions map". The questions had been sent as a list; they have to be a **map**, keyed by the question's id. Each question is a `choice`, with `instructions` (the question) and `criteria` (every option, with what it means), and a yes/no question is a choice between "yes" and "no":
+
+```json
+"response_format": {
+  "type": "questions",
+  "questions": {
+    "t1": { "type": "choice", "instructions": "Did they have a headache?", "criteria": { "yes": "Yes.", "no": "No." } }
+  }
+}
+```
+
+Answers come back under the same keys, as `{"type": "choice", "choice": "yes", "probabilities": {...}, "confidence": 0.9}`. That was a change to `jevRequestBody` (and question ids like `t1_day` instead of `t1.day`, to keep keys plain): the one-place design paid off.
+
 ## During chat: the scratchpad check
 
 `src/scratchpad.ts`. When she's done waiting for you to finish typing (stage 2's debounce), and **before** she replies, Jev reads your new messages and answers all of these at once:

@@ -18,16 +18,16 @@ const QUESTIONS: Question[] = [
 const answer = (selected: string, yes: number): Answer => ({ id: "q", selected, probabilities: { yes, no: 1 - yes }, confidence: Math.max(yes, 1 - yes) });
 
 describe("the request", () => {
-  test("is chat completions with the state as the message and the questions as a response format", () => {
+  test("is chat completions, with the state as the message and the questions as a map of choices", () => {
     expect(jevRequestBody("typesafe/jev-1.13", "They said hi.", QUESTIONS)).toEqual({
       model: "typesafe/jev-1.13",
       messages: [{ role: "user", content: "They said hi." }],
       response_format: {
         type: "questions",
-        questions: [
-          { id: "q1", type: "choice", question: "Did they say they had a headache?", options: ["yes", "no"] },
-          { id: "q2", type: "choice", question: "Which day?", options: ["today", "yesterday"] },
-        ],
+        questions: {
+          q1: { type: "choice", instructions: "Did they say they had a headache?", criteria: { yes: "Yes.", no: "No." } },
+          q2: { type: "choice", instructions: "Which day?", criteria: { today: "today", yesterday: "yesterday" } },
+        },
       },
       stream: false,
     });
@@ -36,6 +36,23 @@ describe("the request", () => {
 
 describe("reading answers", () => {
   const content = (value: unknown) => ({ choices: [{ message: { content: JSON.stringify(value) } }] });
+
+  test("TypeSafe's documented format: answers by name, each with its choice, probabilities and confidence", () => {
+    const answers = readAnswers(
+      content({
+        answers: {
+          q1: { type: "choice", choice: "yes", probabilities: { yes: 0.91, no: 0.09 }, confidence: 0.84 },
+          q2: { type: "choice", choice: "yesterday", probabilities: { today: 0.3, yesterday: 0.7 }, confidence: 0.55 },
+        },
+      }),
+      QUESTIONS,
+    );
+    expect(answers.get("q1")).toEqual({ id: "q1", selected: "yes", probabilities: { yes: 0.91, no: 0.09 }, confidence: 0.84 });
+    expect(tier(answers.get("q1"), 0.8)).toBe("yes");
+    expect(confidentChoice(answers.get("q2"), 0.8)).toBeNull();
+    // The same, straight on the response rather than in the message.
+    expect(readAnswers({ answers: { q1: { type: "choice", choice: "no", probabilities: { yes: 0.1, no: 0.9 } } } }, QUESTIONS).get("q1")!.selected).toBe("no");
+  });
 
   test("a list of answers in the message content", () => {
     const answers = readAnswers(
@@ -145,6 +162,14 @@ describe("the decider", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.message).toContain("HTTP 503");
     expect(decider.lastReport!.jevError).toContain("Model unavailable");
+  });
+
+  test("the questions go as a map (a list is what nanoGPT refused)", async () => {
+    await decider.ask("state", QUESTIONS);
+    expect(fake.jevRequests[0]!.questions.map((q) => [q.id, q.options])).toEqual([
+      ["q1", ["yes", "no"]],
+      ["q2", ["today", "yesterday"]],
+    ]);
   });
 
   test("a reply with no answers Kitsikai can read counts as a failure", async () => {

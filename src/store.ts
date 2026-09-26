@@ -46,6 +46,7 @@ export function defaultSettings(): Settings {
     userName: "",
     persona: readDefault("persona.md"),
     chatAssignment: "",
+    screenshotAssignment: "",
     historyLimit: 40,
     appTheme: "classic",
     themeOptions: {},
@@ -86,6 +87,9 @@ export function validateSettings(input: unknown): Partial<Settings> {
   // Only the form is checked here; the server checks the profile or
   // roulette exists.
   if (raw.chatAssignment !== undefined) clean.chatAssignment = assignment(raw.chatAssignment, "chatAssignment") ?? "";
+  if (raw.screenshotAssignment !== undefined) {
+    clean.screenshotAssignment = assignment(raw.screenshotAssignment, "screenshotAssignment") ?? "";
+  }
   if (raw.historyLimit !== undefined) clean.historyLimit = numberInRange(raw.historyLimit, "historyLimit", 1, 1000, true);
   // Only the id's form is checked here; the server checks the theme exists.
   if (raw.appTheme !== undefined) clean.appTheme = themeId(raw.appTheme, "appTheme");

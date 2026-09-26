@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 3 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) and [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats).
+**Status: stage 4 of 8.** Channels where you text her, in bubbles, and a 📅 planner for your shifts and plans, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) and [stage 4](docs/stage-4.md) (reading your schedule from a screenshot).
 
 ## What it can do
 
@@ -11,12 +11,13 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **The 📅 planner channel**: your plans as a month calendar and a weekly list.
   - **Plans**: shifts, appointments, birthdays, hangouts and anything else, on a day, maybe at a time, maybe repeating weekly or yearly. Overnight shifts (10pm–6am) just work.
   - **Shifts** are regular (with draw hours), meetings, or on-call. Draw time is always calculated from the draw hours. The weekly list shows every shift with all its fields, day totals on double-booked days, and week totals.
+  - **Import a screenshot** of your work schedule: a vision model reads the shifts, you check them in a review list beside the screenshot (⚠️ warnings point out likely misreads, but never stop you), and they're saved as confirmed shifts.
   - **Reminders**: each kind has defaults (a birthday: a week before and the morning of), changeable per plan. A reminder that would land during work moves to before it. (She'll send them from stage 8.)
 - **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), how many recent messages she sees, how long she waits before replying, and how fast she "types".
+- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots, how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -92,6 +93,8 @@ src/
   bubbles.ts   Splitting her replies into bubbles on <cht>
   planner.ts   Plans: repeats, shift hours, draw time, work blocks, reminders, week totals
   dates.ts     Local dates and times, overnight ranges
+  screenshot.ts  Reading shifts from a schedule screenshot, and checking them
+  json.ts      Getting JSON out of a model's reply, forgivingly
   prompt.ts    Builds the prompt stack sent to the model
   toolcalls.ts Reading tool calls, including broken or written-as-text ones (from Aettica)
   profiles.ts  Connection profiles and roulettes (from Aettica)

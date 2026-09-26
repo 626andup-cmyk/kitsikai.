@@ -238,5 +238,51 @@ describeUi("the app in a browser", () => {
     await page.click("#new-channel-button");
     expect(await page.isDisabled('#new-channel-form input[value="planner"]')).toBe(true);
   });
+
+  test("screenshot import: read, review with warnings, fix a row, remove one, save", async () => {
+    const { page, fake, app } = t;
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day");
+    const today = new Date();
+    const date = (offset: number) => {
+      const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset, 12);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    fake.replies.push({
+      content: JSON.stringify({
+        shifts: [
+          { date: date(1), type: "regular", start: "09:00", end: "17:30", drawStart: null, drawEnd: null },
+          { date: date(2), type: "regular", start: "22:00", end: "06:00", drawStart: "23:00", drawEnd: "03:00" },
+          { date: date(3), type: "meeting", start: "08:00", end: "09:00" },
+        ],
+      }),
+    });
+    await page.setInputFiles("#import-file", { name: "schedule.png", mimeType: "image/png", buffer: Buffer.from("png") });
+    await page.waitForSelector(".review-row[data-index='2']");
+    expect(await page.textContent("#import-status-text")).toContain("found 3 shifts");
+    // The first row has no draw hours: a warning, which doesn't block.
+    expect(await page.textContent(".review-row[data-index='0'] .review-warning")).toContain("no draw hours");
+    expect(await page.textContent(".review-row[data-index='1'] .review-draw-time")).toBe("4h draw");
+
+    // Fix the first row's draw hours; the warning goes, and draw time appears.
+    const draw = page.locator(".review-row[data-index='0'] .review-draw input");
+    await draw.nth(0).fill("10:00");
+    await draw.nth(1).fill("14:30");
+    await page.waitForFunction("!document.querySelector(\".review-row[data-index='0'] .review-warning\")");
+    expect(await page.textContent(".review-row[data-index='0'] .review-draw-time")).toBe("4h 30m draw");
+
+    // Remove the meeting, then save.
+    await page.click(".review-row[data-index='2'] .review-remove");
+    expect(await page.textContent("#import-summary")).toBe("2 shifts");
+    await page.click("#import-save");
+    await page.waitForSelector("#import-dialog", { state: "hidden" });
+    const plans = app.store.plans.list();
+    expect(plans.map((p) => [p.drawStart, p.source, p.checked])).toEqual([
+      ["10:00", "screenshot", true],
+      ["23:00", "screenshot", true],
+    ]);
+    await page.waitForSelector(".shift-chip");
+    expect(t.errors).toEqual([]);
+  });
 });
 

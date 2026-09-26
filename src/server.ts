@@ -40,6 +40,10 @@
  *   PATCH  /api/plans/:id                 Change a plan
  *   DELETE /api/plans/:id                 Delete a plan
  *
+ *   POST   /api/screenshots/read          Read shifts from a schedule screenshot, for the review list
+ *   POST   /api/screenshots/check         Check edited review rows again (warnings, draw time)
+ *   POST   /api/screenshots/save          Save review rows as checked shifts
+ *
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
  *
@@ -74,6 +78,7 @@ import { ApiError, CancelledError, listModels, type ApiOptions } from "./nanogpt
 import { Replies } from "./replies.ts";
 import { daysBetween, isDate, mondayOf } from "./dates.ts";
 import { DEFAULT_REMINDERS, REMINDER_LABELS } from "./planner.ts";
+import { checkRows, IMAGE_TYPES, MAX_IMAGE_BASE64, readSchedule, rowsFromRequest, saveRows } from "./screenshot.ts";
 import {
   NotFoundError,
   Store,
@@ -258,6 +263,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         const update = validateSettings(await readJson(request));
         ensureTheme(update.appTheme);
         if (update.chatAssignment) store.profiles.checkAssignment(update.chatAssignment);
+        if (update.screenshotAssignment) store.profiles.checkAssignment(update.screenshotAssignment);
         if (update.homeChannelId && store.getChannel(update.homeChannelId).kind !== "text") {
           throw new HttpError(400, "The home channel must be a text channel.");
         }
@@ -459,6 +465,41 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         store.plans.delete(id!);
         events.publish({ type: "plans" });
         return json({ ok: true });
+      },
+    },
+
+    // -------------------------------------------------- screenshot import
+    {
+      method: "POST",
+      pattern: "/api/screenshots/read",
+      handler: async (request) => {
+        const body = await readObject(request);
+        if (typeof body.mimeType !== "string" || !IMAGE_TYPES.includes(body.mimeType)) {
+          throw new HttpError(400, "The screenshot must be a PNG, JPEG, WebP or GIF image.");
+        }
+        if (typeof body.image !== "string" || body.image.length === 0 || body.image.length > MAX_IMAGE_BASE64) {
+          throw new HttpError(400, '"image" must be the screenshot as base64, 10 MB at most.');
+        }
+        const profile = store.profiles.pick(store.getSettings().screenshotAssignment, false);
+        const rows = await readSchedule(api, profile, { data: body.image, mimeType: body.mimeType }, now());
+        return json({ rows: checkRows(rows, store.plans.list(), now()), profile: profile.name });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/screenshots/check",
+      handler: async (request) => {
+        const rows = rowsFromRequest((await readObject(request)).rows);
+        return json({ rows: checkRows(rows, store.plans.list(), now()) });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/screenshots/save",
+      handler: async (request) => {
+        const plans = saveRows(store, rowsFromRequest((await readObject(request)).rows), now());
+        events.publish({ type: "plans" });
+        return json({ plans });
       },
     },
 

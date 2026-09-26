@@ -211,6 +211,21 @@ describeUi("the app in a browser", () => {
     expect(t.errors).toEqual([]);
   });
 
+  test("the calendar's weeks start on Sunday", async () => {
+    const { page } = t;
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day");
+    expect(await page.$$eval(".calendar-weekday", (nodes) => nodes.map((n) => n.textContent))).toEqual(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
+    // The first day in the grid is a Sunday, and so is every 7th after it.
+    const days = await page.$$eval(".calendar-day", (nodes) => nodes.map((n) => n.getAttribute("data-date")!));
+    expect(days.length % 7).toBe(0);
+    for (let i = 0; i < days.length; i += 7) {
+      const [y, m, d] = days[i]!.split("-").map(Number);
+      expect(new Date(y!, m! - 1, d!).getDay()).toBe(0);
+    }
+    expect(t.errors).toEqual([]);
+  });
+
   test("the planner: plan errors show in the editor, and the calendar moves between months", async () => {
     const { page } = t;
     await page.click('.channel-link:has-text("planner")');

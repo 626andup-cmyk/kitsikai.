@@ -96,6 +96,15 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `--sticker-yes-bg`, `--sticker-no-bg` | Yes and no stickers |
 | `--highlight-bg` | A message you jumped to with "show the message" |
 
+### Her notes (the advanced page)
+
+| Variable | What it sets |
+| --- | --- |
+| `--pin-accent` | The stripe on a pin |
+| `--memory-saved-color` | "Saved", "They said yes" and "Pinned" in the processing log, and a working Test Jev |
+| `--memory-ask-color` | "Will ask", and the stripe on something she'll ask you |
+| `--memory-tossed-color` | "Tossed", "They said no" and "Kept" |
+
 ### Controls
 
 | Variable | What it sets |
@@ -155,6 +164,13 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.log-sticker` | A sticker. Has `data-kind`, `data-value` and `data-source` (`user`, `processing`, `confirmed`). |
 | `.calendar-stickers`, `.day-panel-stickers`, `.day-stickers-title`, `.day-stickers`, `.day-sticker-add` | Stickers on calendar days: dots in the grid, and the day panel's list |
 | `.message.highlighted` | A message you jumped to |
+| `.memory-grid`, `.jev-test-result` | Her memory settings, and what Test Jev got back (`.ok` or `.failed`) |
+| `.notes-page`, `.notes-status`, `.notes-actions`, `.notes-section`, `.notes-drawer`, `.memory-list`, `.memory-empty` | The advanced page, "Kitsikai's notes" |
+| `.memory-card`, `.memory-card-text`, `.memory-card-fact`, `.memory-source` | A pin or note, and its "show the message" link |
+| `.pin-card` | A pin. Has `data-status` (`pinned`, `drawer`). |
+| `.note-card` | A note. Has `data-kind` (`tracker`, `plan`, `remember`, `request`) and `data-status` (`open`, `asking`, `bringup`). |
+| `.memory-rounds`, `.memory-round`, `.memory-round-title` | The processing log's rounds. A round has `data-trigger` (`timer`, `early`, `manual`). |
+| `.memory-log`, `.memory-log-line`, `.memory-log-action`, `.memory-log-text`, `.memory-log-reason` | One line of the log. Has `data-action` (`noted`, `committed`, `tossed`, `asking`, `pinned`, `unpinned`...). |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

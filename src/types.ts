@@ -115,6 +115,27 @@ export interface Settings {
    */
   typingBaseMs: number;
   typingPerCharMs: number;
+  /**
+   * Which connection profile writes her notes, pins and plan cards from chat
+   * (stage 7: "the processing writer"). A cheap, steady one. `""` for the
+   * first profile.
+   */
+  writerAssignment: string;
+  /**
+   * Jev's model id on nanoGPT (stage 7), pinned to a version so upgrades
+   * happen on purpose. `""` turns Jev off: the fallback answers, if set.
+   */
+  decisionModel: string;
+  /** A profile that answers Jev's questions when Jev can't: `"profile:<id>"`, or `""` for none. */
+  decisionFallback: string;
+  /** How sure Jev has to be (0.5 to 0.99) for a confident yes or no. Anything less is "unsure". */
+  decisionConfidence: number;
+  /** How often she processes her scratchpad, in hours. */
+  processingHours: number;
+  /** The most pins she keeps up at once. */
+  pinCap: number;
+  /** Show "Kitsikai's notes" in settings (the advanced page). Changes nothing about her. */
+  showAdvanced: boolean;
   /** The app theme's id (see `src/themes.ts`). "classic" is the default look. */
   appTheme: string;
   /**
@@ -394,5 +415,141 @@ export interface ToolCallRecord {
   /** `native` if the API returned it as a tool call; `text` if it was written out in the reply. */
   source: "native" | "text";
   profile: string | null;
+  createdAt: string;
+}
+
+// ------------------------------------------------------------ stage 7
+
+/**
+ * What a scratchpad note is about:
+ *
+ * - `"tracker"`: something a tracker watches for seemed to happen.
+ * - `"plan"`: they mentioned a plan (it becomes one only after they say yes).
+ * - `"remember"`: something a friend would remember ("they seemed stressed
+ *   about the new manager, check in later").
+ * - `"request"`: they asked her to pin something, or let a pin go.
+ */
+export type NoteKind = "tracker" | "plan" | "remember" | "request";
+
+/**
+ * Where a note is:
+ *
+ * - `"open"`: on the scratchpad, in pencil, waiting for processing.
+ * - `"asking"`: processing wasn't sure (or it's a plan): she asks you.
+ * - `"bringup"`: kept, as something she might bring up.
+ * - `"done"`: committed to the binder, or settled.
+ * - `"tossed"`: wrong, taken back, or you said no.
+ */
+export type NoteStatus = "open" | "asking" | "bringup" | "done" | "tossed";
+
+/** A plan as drafted from chat by the processing writer, before you say yes. */
+export interface PlanDraft {
+  kind: PlanKind;
+  title: string;
+  startDate: string;
+  startTime: string | null;
+  endDate: string | null;
+  endTime: string | null;
+  shiftType: ShiftType | null;
+  notes: string;
+}
+
+/** A sticky note on her scratchpad. */
+export interface Note {
+  id: string;
+  kind: NoteKind;
+  /** The note, in her words. */
+  text: string;
+  status: NoteStatus;
+  /** `"noticed"`: Jev noticed it in chat. `"jotted"`: she wrote it herself, with a tool. */
+  origin: "noticed" | "jotted";
+  /** A request from you: honored at processing. */
+  yours: boolean;
+  /** About something in the next few hours: processed early. */
+  timeSensitive: boolean;
+  /** You already said yes to it, so processing doesn't need to check. */
+  confirmed: boolean;
+  /** Tracker notes: which tracker, the value and the day. */
+  trackerId: string | null;
+  value: string | null;
+  date: string | null;
+  /** Plan notes: the plan, as drafted. */
+  planDraft: PlanDraft | null;
+  /** Request notes: pin something, or let one go. */
+  request: "pin" | "unpin" | null;
+  /** Asking notes: what she's asking you. */
+  ask: string | null;
+  channelId: string | null;
+  /** The message it came from. */
+  messageId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+}
+
+/** A pin: something that matters right now, always in her view. */
+export interface Pin {
+  id: string;
+  /** What it is, in her words. */
+  text: string;
+  /** Why she pinned it. */
+  reason: string;
+  /** When to take it down: a condition, in words ("once they say the manager thing settled"). */
+  unpinWhen: string;
+  /** Or a date: after this day, it comes down. */
+  unpinDate: string | null;
+  /** `"drawer"`: unpinned. Not forgotten: her tools can still find it. */
+  status: "pinned" | "drawer";
+  /** You asked her to pin it. */
+  yours: boolean;
+  noteId: string | null;
+  pinnedAt: string;
+  unpinnedAt: string | null;
+  unpinReason: string | null;
+}
+
+/** What started a processing round. */
+export type ProcessingTrigger = "timer" | "early" | "manual";
+
+/** One processing round. */
+export interface ProcessingRun {
+  id: string;
+  trigger: ProcessingTrigger;
+  startedAt: string;
+  finishedAt: string | null;
+  /** Why it stopped early, if it did (Jev unreachable, say). */
+  error: string | null;
+}
+
+/** Something that happened to her notes or pins. */
+export type MemoryAction =
+  | "noted"
+  | "rewritten"
+  | "committed"
+  | "asking"
+  | "bringup"
+  | "pinned"
+  | "unpinned"
+  | "tossed"
+  | "kept"
+  | "confirmed"
+  | "declined"
+  | "done"
+  | "error";
+
+/** One line of the processing log: what happened, and why. */
+export interface MemoryLogEntry {
+  id: string;
+  /** The processing round, or `null` for something that happened during chat. */
+  runId: string | null;
+  action: MemoryAction;
+  /** What it was about ("headache 6/10 on Sat Sep 26"). */
+  text: string;
+  /** Why ("still true, 94% sure"). */
+  reason: string;
+  noteId: string | null;
+  pinId: string | null;
+  /** The message it came from, to see exactly where. */
+  messageId: string | null;
   createdAt: string;
 }

@@ -54,6 +54,8 @@
     <script src="/screenshot.js" defer></script>
     <!-- The trackers channel's screen, and stickers on calendar days (stage 5). -->
     <script src="/trackers.js" defer></script>
+    <!-- Her memory settings and the advanced page (stage 7). -->
+    <script src="/memory.js" defer></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -321,6 +323,57 @@
           </div>
         </div>
         <p class="hint">How long each of her bubbles takes to appear after the one before. Double-tap the typing dots to skip.</p>
+
+        <h3 class="section-title">Her memory</h3>
+        <p class="hint">
+          She jots things on a scratchpad in pencil, and every few hours processes it: what's true is saved, what's wrong
+          is tossed, and she asks about what she's unsure of.
+        </p>
+        <label for="setting-writer-assignment">Her notes are written by</label>
+        <select id="setting-writer-assignment" name="writerAssignment"></select>
+        <p class="hint">The "processing writer": writes her notes, pins and plan cards from chat. A cheap, steady model is best.</p>
+
+        <label for="setting-decision-model">Her decisions are made by (Jev)</label>
+        <input id="setting-decision-model" name="decisionModel" autocomplete="off" spellcheck="false" placeholder="typesafe/jev-1.13" />
+        <p class="hint">
+          Jev's model id on nanoGPT, pinned to a version so it only changes when you change it. Empty turns Jev off.
+          <button type="button" class="link-button inline-link" id="test-jev">Test Jev</button> (uses the saved settings)
+        </p>
+        <div id="jev-test-result" class="jev-test-result" hidden></div>
+
+        <label for="setting-decision-fallback">If Jev can't answer, ask</label>
+        <select id="setting-decision-fallback" name="decisionFallback"></select>
+        <p class="hint">A normal profile answers Jev's questions instead: slower and less sure, but her memory keeps working.</p>
+
+        <div class="grid memory-grid">
+          <div>
+            <label for="setting-confidence">Sure enough at</label>
+            <input id="setting-confidence" name="decisionConfidence" type="number" min="0.5" max="0.99" step="any" />
+          </div>
+          <div>
+            <label for="setting-processing-hours">Process every (hours)</label>
+            <input id="setting-processing-hours" name="processingHours" type="number" min="0.25" max="48" step="any" />
+          </div>
+          <div>
+            <label for="setting-pin-cap">Most pins</label>
+            <input id="setting-pin-cap" name="pinCap" type="number" min="1" max="50" step="1" />
+          </div>
+        </div>
+        <p class="hint">
+          How sure Jev has to be (0.8 is 80%) for a yes or a no to count. Anything less is "unsure", and takes the safe
+          path: keep the note, ask you, leave the pin up.
+        </p>
+
+        <h3 class="section-title">Advanced</h3>
+        <label class="check-option">
+          <input type="checkbox" name="showAdvanced" id="setting-show-advanced" />
+          <span
+            ><strong>Show advanced</strong><br /><span class="hint"
+              >Lets you look at Kitsikai's notes, pins and processing log. It changes nothing about her.</span
+            ></span
+          >
+        </label>
+        <button type="button" class="button" id="open-notes" hidden>Kitsikai's notes…</button>
 
         <p class="form-error" role="alert" hidden></p>
 
@@ -903,6 +956,35 @@
         <button type="button" class="button" id="tool-log-copy">Copy as text</button>
       </div>
       <ol id="tool-log-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+
+    <!-- The advanced page (stage 7): her notes, pins and processing log. Look, don't touch. -->
+    <dialog id="notes-dialog" class="dialog surface notes-page">
+      <h2 class="dialog-title">Kitsikai's notes</h2>
+      <p class="hint">
+        Look, don't touch: everything here changes through her, by talking. Opening this page changes nothing about
+        how she works.
+      </p>
+      <div class="notes-status" id="notes-status"></div>
+      <div class="dialog-buttons notes-actions">
+        <span class="spacer"></span>
+        <button type="button" class="button" id="process-now">Process now</button>
+      </div>
+      <section class="notes-section" id="notes-pins"></section>
+      <section class="notes-section" id="notes-scratchpad"></section>
+      <section class="notes-section" id="notes-asking"></section>
+      <section class="notes-section" id="notes-bringup"></section>
+      <details class="notes-section notes-drawer">
+        <summary>The drawer</summary>
+        <p class="hint">Pins she's taken down. Not forgotten: she can still look in here.</p>
+        <ol class="memory-list" id="notes-drawer"></ol>
+      </details>
+      <section class="notes-section" id="notes-log"></section>
       <p class="form-error" role="alert" hidden></p>
       <div class="dialog-buttons">
         <span class="spacer"></span>

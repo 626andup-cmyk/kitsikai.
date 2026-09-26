@@ -14,8 +14,9 @@
  *   3. Where you're texting    this channel, its topic, and the others
  *   4. Right now               the date and time on the phone
  *   5. Today and tomorrow      your plans for both days, and whether you're at work (stage 6)
- *   6. Tools                   how to use her lookups, if the profile can (stage 6)
- *   7. Model notes             the connection profile's notes on this model
+ *   6. Your notes and pins     her scratchpad, pins, what she'll ask you about (stage 7)
+ *   7. Tools                   how to use her lookups, if the profile can (stage 6)
+ *   8. Model notes             the connection profile's notes on this model
  *
  * Later stages add more sections in between (channels, plans, her notes and
  * pins), but the shape stays the same.
@@ -46,8 +47,8 @@ Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to s
 /** Before today's and tomorrow's plans: where they come from. */
 export const PLANNER_NOTE = `From the planner you share with them (their shifts and plans; "not confirmed yet" means they haven't checked it):`;
 
-/** How to use her lookup tools (stage 6). */
-export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), and what you said in other channels (read_channel).
+/** How to use her tools (stage 6: lookups; stage 7: her notes). */
+export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), what you said in other channels (read_channel), and things you've unpinned (look_in_drawer). You can jot a note on your scratchpad (jot_note) when something's worth remembering, or when they ask you to pin something or let a pin go.
 
 Use tools only when they help: most texts need none. If a plan or something logged comes up and it isn't in front of you, look it up instead of guessing. Never mention tools or looking things up: just know it, like a friend who remembers. If there's nothing you'd text, you can call do_nothing.`;
 
@@ -89,6 +90,8 @@ export interface PromptInput {
   modelNotes?: string;
   /** Today's and tomorrow's plans, in words (see `todayAndTomorrow` in src/binder.ts). */
   todayAndTomorrow?: string;
+  /** Her notes and pins, in words (see `memoryForPrompt` in src/memory.ts). */
+  memory?: string;
   /** Whether she can use tools this turn (adds guidance on them). */
   tools?: boolean;
 }
@@ -106,6 +109,7 @@ export function buildPromptStack(input: PromptInput): ChatMessage[] {
     { title: "Where you're texting", content: describeChannels(channel, channels ?? [channel]) },
     { title: "Right now", content: describeNow(now) },
     { title: "Today and tomorrow", content: input.todayAndTomorrow ? `${PLANNER_NOTE}\n\n${input.todayAndTomorrow}` : null },
+    { title: "Your notes and pins", content: input.memory },
     { title: "Tools", content: tools ? TOOL_GUIDANCE : null },
     { title: "Model notes", content: modelNotes },
   ];

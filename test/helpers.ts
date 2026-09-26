@@ -28,8 +28,29 @@ export type FakeReply =
    */
   | { toolCalls: { name: string; arguments: string | object }[]; content?: string | null };
 
+/**
+ * How the fake Jev answers one request (stage 7): an answer per question id,
+ * as the option picked (95% sure) or with its own probability. Questions
+ * left out get the default: their last option ("no", "neither", "not
+ * answered"), 95% sure. Or an error.
+ */
+export type JevReply = Record<string, string | { selected: string; p: number }> | { status: number; error: string };
+
+/** A request the fake Jev received. */
+export interface JevRequest {
+  model: string;
+  state: string;
+  questions: { id: string; question: string; options: string[] }[];
+}
+
 export interface FakeNanoGpt {
   baseUrl: string;
+  /** Every request to Jev (a "questions" response format), oldest first. Not in `requests`. */
+  jevRequests: JevRequest[];
+  /** Queue Jev replies; each Jev request takes the next one, else `jev`, else the defaults. */
+  jevReplies: JevReply[];
+  /** Answer Jev requests with a function, when the queue is empty. */
+  jev?: (request: JevRequest) => JevReply;
   /** Every chat completion request received, oldest first. */
   requests: Array<{
     model: string;
@@ -45,7 +66,7 @@ export interface FakeNanoGpt {
 }
 
 export function startFakeNanoGpt(): FakeNanoGpt {
-  const fake: FakeNanoGpt = { baseUrl: "", requests: [], replies: [], stop: () => {} };
+  const fake: FakeNanoGpt = { baseUrl: "", requests: [], replies: [], jevRequests: [], jevReplies: [], stop: () => {} };
 
   const server = Bun.serve({
     port: 0, // let the OS pick a free port
@@ -57,7 +78,10 @@ export function startFakeNanoGpt(): FakeNanoGpt {
       }
 
       if (path === "/v1/chat/completions") {
-        const body = (await request.json()) as Omit<FakeNanoGpt["requests"][number], "auth">;
+        const body = (await request.json()) as Omit<FakeNanoGpt["requests"][number], "auth"> & {
+          response_format?: { type?: string; questions?: JevRequest["questions"] };
+        };
+        if (body.response_format?.type === "questions") return answerJev(fake, body);
         fake.requests.push({ ...body, auth: request.headers.get("authorization") });
         const reply = fake.replies.shift() ?? { content: `Reply ${fake.requests.length}` };
 
@@ -108,6 +132,29 @@ export function startFakeNanoGpt(): FakeNanoGpt {
   fake.baseUrl = `http://127.0.0.1:${server.port}/v1`;
   fake.stop = () => server.stop(true);
   return fake;
+}
+
+/** The fake Jev: answers every question, in one plausible reply layout. */
+function answerJev(fake: FakeNanoGpt, body: { model: string; messages: ChatMessage[]; response_format?: { questions?: JevRequest["questions"] } }) {
+  const request: JevRequest = { model: body.model, state: body.messages[0]?.content ?? "", questions: body.response_format?.questions ?? [] };
+  fake.jevRequests.push(request);
+  const reply = fake.jevReplies.shift() ?? fake.jev?.(request) ?? {};
+  if ("status" in reply && typeof reply.status === "number") {
+    return Response.json({ error: { message: reply.error } }, { status: reply.status });
+  }
+  const given = reply as Record<string, string | { selected: string; p: number }>;
+  const answers = request.questions.map((q) => {
+    const answer = given[q.id];
+    const selected = typeof answer === "object" ? answer.selected : (answer ?? q.options.at(-1)!);
+    const p = typeof answer === "object" ? answer.p : 0.95;
+    const others = q.options.filter((o) => o !== selected);
+    const probabilities = Object.fromEntries(q.options.map((o) => [o, o === selected ? p : (1 - p) / others.length]));
+    return { id: q.id, selected, probabilities };
+  });
+  return Response.json({
+    model: body.model,
+    choices: [{ message: { role: "assistant", content: JSON.stringify({ answers }) }, finish_reason: "stop" }],
+  });
 }
 
 /** A fresh, empty temporary folder, plus a function that deletes it. */

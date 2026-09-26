@@ -21,11 +21,18 @@
  * Timers live here, on the server, not in the browser: if you send a
  * message and lock your phone, she still replies. Her reply reaches the
  * app through the events stream (src/events.ts).
+ *
+ * From stage 7, when the wait is over, Jev first checks your new messages
+ * for her scratchpad (src/scratchpad.ts), then she replies, with any new
+ * notes (and your "yes" to one of her questions) already in view. If you
+ * send another bubble during the check, it stops, and starts again with
+ * everything after the next wait.
  */
 
 import type { Events } from "./events.ts";
 import { BusyError, type Kitsikai } from "./kitsikai.ts";
 import { ApiError, CancelledError } from "./nanogpt.ts";
+import type { Scratchpad } from "./scratchpad.ts";
 import type { Store } from "./store.ts";
 
 export class Replies {
@@ -33,17 +40,21 @@ export class Replies {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Turns this has started and that haven't finished, so tests can wait for them. */
   private readonly running = new Set<Promise<void>>();
+  /** Channels where the scratchpad check is running. */
+  private readonly checkingIn = new Set<string>();
 
   constructor(
     private readonly store: Store,
     private readonly kitsikai: Kitsikai,
     private readonly events: Events,
+    private readonly scratchpad?: Scratchpad,
   ) {}
 
   /** You sent a bubble in a channel: (re)start her wait there. */
   bubbleSent(channelId: string): void {
     // A reply she was writing is out of date now. (Nothing was saved yet.)
     if (this.kitsikai.isBusy(channelId)) this.kitsikai.cancel(channelId);
+    this.scratchpad?.cancel(channelId);
     this.start(channelId);
   }
 
@@ -60,10 +71,16 @@ export class Replies {
     return this.timers.has(channelId);
   }
 
+  /** Whether Jev is checking your new messages there, before she replies (stage 7). */
+  isChecking(channelId: string): boolean {
+    return this.checkingIn.has(channelId);
+  }
+
   /** Stop waiting in a channel (the Stop button, or the channel was deleted). */
   cancel(channelId: string): void {
     clearTimeout(this.timers.get(channelId));
     this.timers.delete(channelId);
+    this.scratchpad?.cancel(channelId);
   }
 
   /**
@@ -106,6 +123,16 @@ export class Replies {
       return; // the channel was deleted
     }
     if (last?.author !== "user") return;
+
+    // Stage 7: Jev checks your new messages for her scratchpad first. It
+    // never fails; if you sent more meanwhile (or pressed Stop), the next
+    // wait takes over.
+    if (this.scratchpad) {
+      this.checkingIn.add(channelId);
+      const { skipped } = await this.scratchpad.check(channelId).finally(() => this.checkingIn.delete(channelId));
+      if (skipped === "stopped" || this.timers.has(channelId)) return;
+      if (this.store.lastMessage(channelId)?.author !== "user") return;
+    }
 
     // Something else is writing here (the "Her turn" button, say): try
     // again once it's done.

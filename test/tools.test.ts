@@ -42,8 +42,17 @@ afterEach(async () => {
 const run = (name: string, args: Record<string, unknown> = {}) => runTool(ctx, name, args);
 
 describe("the tools", () => {
-  test("are the binder lookups, and do_nothing", () => {
-    expect(TOOL_NAMES).toEqual(["look_up_plans", "find_plans", "list_trackers", "look_up_log", "read_channel", "do_nothing"]);
+  test("are the binder lookups, her notes (stage 7), and do_nothing", () => {
+    expect(TOOL_NAMES).toEqual([
+      "look_up_plans",
+      "find_plans",
+      "list_trackers",
+      "look_up_log",
+      "read_channel",
+      "jot_note",
+      "look_in_drawer",
+      "do_nothing",
+    ]);
   });
 
   test("look_up_plans: plans between two dates, described", () => {

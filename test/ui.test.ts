@@ -370,5 +370,58 @@ describeUi("the app in a browser", () => {
     expect(await page.$$eval("#tool-log-list .tool-call", (n) => n.length)).toBe(1);
     expect(t.errors).toEqual([]);
   });
+
+  test("her memory settings save, and Test Jev shows what came back", async () => {
+    const { page, app, fake } = t;
+    await page.click("#settings-button");
+    expect(await page.inputValue("#setting-decision-model")).toBe("typesafe/jev-1.13");
+    expect(await page.inputValue("#setting-decision-fallback")).toBe("");
+    fake.jevReplies.push({ pet: { selected: "yes", p: 0.97 } });
+    await page.click("#test-jev");
+    await page.waitForSelector("#jev-test-result.ok");
+    expect(await page.textContent("#jev-test-result p")).toBe('✓ Jev answered "yes", 97% sure, as expected. It\'s working.');
+    await page.fill("#setting-processing-hours", "2");
+    await page.fill("#setting-pin-cap", "5");
+    await page.fill("#setting-confidence", "0.9");
+    await page.click('#settings-form button[type="submit"]');
+    await page.waitForSelector("#settings-dialog", { state: "hidden" });
+    expect(app.store.getSettings()).toMatchObject({ processingHours: 2, pinCap: 5, decisionConfidence: 0.9, decisionFallback: "" });
+    expect(t.errors).toEqual([]);
+  });
+
+  test("the advanced page: her notes from chat, Process now, and the log links to the message", async () => {
+    const { page, app, fake } = t;
+    app.store.trackers.create({ name: "headache", kind: "scale" });
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    fake.jevReplies.push({ t1: "yes", "t1.day": "today", "t1.level": "7" });
+    fake.replies.push({ content: "ugh noted 📌" });
+    await page.fill("#composer-input", "my head is killing me, like a 7");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector('.message[data-author="kitsikai"]');
+
+    // Hidden until "Show advanced" is ticked.
+    await page.click("#settings-button");
+    expect(await page.isHidden("#open-notes")).toBe(true);
+    await page.check("#setting-show-advanced");
+    await page.click("#open-notes");
+    await page.waitForSelector("#notes-scratchpad .note-card");
+    expect(await page.textContent("#notes-scratchpad .memory-card-text")).toMatch(/^headache 7\/10 on \w+, \w+ \d+$/);
+    expect(await page.textContent("#notes-pins .memory-empty")).toBe("Nothing pinned right now.");
+    expect(await page.textContent("#notes-log .memory-round-title")).toBe("During chat");
+
+    fake.jevReplies.push({ n1: "yes" });
+    await page.click("#process-now");
+    await page.waitForSelector('#notes-log .memory-round[data-trigger="manual"]');
+    expect(await page.textContent('.memory-round[data-trigger="manual"] .memory-log-action')).toBe("Saved");
+    expect(await page.textContent("#notes-scratchpad .memory-empty")).toBe("Nothing waiting to be processed.");
+    expect(app.store.trackers.entries()).toEqual([expect.objectContaining({ value: "7", source: "processing" })]);
+
+    // "show the message" jumps to where it came from.
+    await page.click('.memory-round[data-trigger="manual"] .memory-source');
+    await page.waitForSelector("#notes-dialog", { state: "hidden" });
+    await page.waitForSelector(".message.highlighted");
+    expect(await page.textContent(".message.highlighted .message-content")).toBe("my head is killing me, like a 7");
+    expect(t.errors).toEqual([]);
+  });
 });
 

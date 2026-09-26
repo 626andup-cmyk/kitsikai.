@@ -522,6 +522,8 @@ describe("the API", () => {
     }
     const { data } = await call("GET", "/api/state");
     expect(data.notificationsAvailable).toBe(true);
+    // The server's time zone, for the app to compare with the phone's.
+    expect(data.clock).toEqual({ zone: Intl.DateTimeFormat().resolvedOptions().timeZone, offsetMinutes: time.getTimezoneOffset() });
   });
 });
 

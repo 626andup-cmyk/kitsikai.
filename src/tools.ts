@@ -10,6 +10,10 @@
  * `look_in_drawer` finds pins she's taken down. Neither changes the binder:
  * only processing does, and plans only after you say yes.
  *
+ * `search_history` searches everything you've said to each other, which
+ * matters most for a chat imported from elsewhere (src/importer.ts): only
+ * a channel's newest messages are in view.
+ *
  * Each tool is a name, a description the model reads, a JSON schema for its
  * arguments, and a `run` function. `runTool` checks the arguments, runs it,
  * and returns:
@@ -251,6 +255,40 @@ const TOOLS: ToolDefinition[] = [
           ? messages.map((m) => ({ from: m.author === "user" ? "them" : "you", text: m.content, when: when(m.createdAt, ctx.now) }))
           : { note: `#${channel.name} is empty.` },
         summary: `read #${channel.name}`,
+      };
+    },
+  },
+  {
+    name: "search_history",
+    description:
+      "Search everything you two have said, in every channel, including chats from before this app: when something from a while back comes up, look up what was actually said instead of guessing.",
+    parameters: object(
+      {
+        query: str("A few words to look for (all of them have to be in the message)."),
+        channel: str("Optional: only this channel, like #general."),
+      },
+      ["query"],
+    ),
+    run: (ctx, args) => {
+      const query = maybe(args, "query");
+      if (!query) throw new ToolError('"query" is required.');
+      const words = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+      const name = maybe(args, "channel");
+      const channels = name ? [findChannel(ctx, name)] : ctx.store.listChannels().filter((c) => c.kind === "text");
+      // What's already in front of her in this channel isn't worth finding again.
+      const inView = new Set(ctx.store.recentMessages(ctx.channel.id, ctx.store.getSettings().historyLimit).map((m) => m.id));
+      const found = ctx.store.searchMessages(words, { channelIds: channels.map((c) => c.id), exclude: inView, limit: 15 });
+      const channelName = (id: string) => channels.find((c) => c.id === id)?.name ?? "?";
+      return {
+        result: found.length
+          ? found.map((m) => ({
+              when: `${dayName(dateOf(new Date(m.createdAt)))} ${new Date(m.createdAt).getFullYear()}, ${formatClock(new Date(m.createdAt))}`,
+              channel: `#${channelName(m.channelId)}`,
+              from: m.author === "user" ? "them" : "you",
+              text: m.content.length > 400 ? `${m.content.slice(0, 400)}…` : m.content,
+            }))
+          : { note: `Nothing older mentions "${query}".` },
+        summary: `searched the history for "${query}"`,
       };
     },
   },

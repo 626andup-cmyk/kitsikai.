@@ -190,6 +190,7 @@ function renderNotes() {
   else if (jev.checkError) status.push(`⚠️ The last check of your messages failed: ${jev.checkError}`);
   else if (jev.lastReport?.jevError && jev.lastReport.answeredBy === "fallback") status.push(`Jev failed, so the fallback answered: ${jev.lastReport.jevError}`);
   else status.push(`Decisions by ${jev.model || "the fallback profile"}.`);
+  if (data.catchUp?.running) status.push(`Catching up on the imported chat: part ${data.catchUp.partsDone + 1} of ${data.catchUp.parts}…`);
   status.push(
     data.processing.running
       ? "Processing right now…"

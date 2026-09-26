@@ -176,7 +176,8 @@ describe("repeats", () => {
 
 describe("daylight saving", () => {
   test("a night shift over the night the clocks go back is 9 hours, not 8", () => {
-    const saved = process.env.TZ;
+    // Restored to the zone itself afterwards: deleting TZ doesn't switch back.
+    const saved = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     process.env.TZ = "America/New_York"; // clocks go back at 2 AM on November 1, 2026
     try {
       const store = new Store(":memory:");
@@ -187,8 +188,7 @@ describe("daylight saving", () => {
       expect(normalNight!.shiftMinutes).toBe(8 * 60);
       store.close();
     } finally {
-      if (saved === undefined) delete process.env.TZ;
-      else process.env.TZ = saved;
+      process.env.TZ = saved;
     }
   });
 });

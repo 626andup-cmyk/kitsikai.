@@ -49,6 +49,7 @@ describe("the tools", () => {
       "list_trackers",
       "look_up_log",
       "read_channel",
+      "search_history",
       "jot_note",
       "look_in_drawer",
       "do_nothing",

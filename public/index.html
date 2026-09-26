@@ -56,6 +56,8 @@
     <script src="/trackers.js" defer></script>
     <!-- Her memory settings and the advanced page (stage 7). -->
     <script src="/memory.js" defer></script>
+    <!-- Importing a chat from Lumiverse or SillyTavern. -->
+    <script src="/import.js" defer></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -362,6 +364,12 @@
         <p class="hint">
           How sure Jev has to be (0.8 is 80%) for a yes or a no to count. Anything less is "unsure", and takes the safe
           path: keep the note, ask you, leave the pin up.
+        </p>
+
+        <h3 class="section-title">Chat history</h3>
+        <p class="hint">
+          Been talking to her somewhere else? Bring that chat over from Lumiverse or SillyTavern.
+          <button type="button" class="link-button inline-link" id="open-import-chat">Import a chat…</button>
         </p>
 
         <h3 class="section-title">Texting first</h3>
@@ -1001,6 +1009,53 @@
         <span class="spacer"></span>
         <button type="button" class="button button-primary" data-close>Close</button>
       </div>
+    </dialog>
+
+    <!-- Importing a chat from Lumiverse or SillyTavern (public/import.js). -->
+    <dialog id="import-chat-dialog" class="dialog surface import-chat">
+      <form id="import-chat-form" method="dialog">
+        <h2 class="dialog-title">Import a chat</h2>
+        <p class="hint">
+          In Lumiverse or SillyTavern, export the chat (a <code>.jsonl</code> file) and choose it here. It's read on
+          this phone, and nothing is saved until you press Import.
+        </p>
+        <input type="file" id="import-chat-file" accept=".jsonl,.json,.txt,application/json" />
+        <div id="import-chat-preview" class="import-chat-preview" hidden></div>
+        <div id="import-chat-options" hidden>
+          <label class="check-option import-target">
+            <input type="radio" name="target" value="new" checked />
+            <span
+              ><strong>Into a new channel</strong><br /><input
+                name="newChannel"
+                value="lumiverse"
+                autocomplete="off"
+                aria-label="New channel name"
+            /></span>
+          </label>
+          <label class="check-option import-target" id="import-chat-existing">
+            <input type="radio" name="target" value="existing" />
+            <span
+              ><strong>Into an empty channel</strong><br /><select name="channelId" aria-label="Empty channel"></select
+            ></span>
+          </label>
+          <label class="check-option">
+            <input type="checkbox" name="catchUp" />
+            <span
+              ><strong>Let her catch up</strong><br /><span class="hint"
+                >Her notes model reads the whole chat and writes down what's still worth knowing (at most 10 notes),
+                which she then processes like anything else. This sends the whole chat to that model (Settings → Her
+                notes are written by), so pick one whose terms are fine with it.</span
+              ></span
+            >
+          </label>
+        </div>
+        <p class="form-error" role="alert" hidden></p>
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary" id="import-chat-submit" disabled>Import</button>
+        </div>
+      </form>
     </dialog>
 
     <!-- The advanced page (stage 7): her notes, pins and processing log. Look, don't touch. -->

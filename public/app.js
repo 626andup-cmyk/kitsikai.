@@ -65,8 +65,9 @@ const $ = (id) => document.getElementById(id);
 
 /**
  * Screens for channels that aren't chats, by channel kind: the 📅 planner
- * (planner.js, stage 3). Each has `open()` (the channel was opened),
- * `render()` (redraw) and `reload()` (fetch again, when something changed).
+ * (planner.js, stage 3) and the trackers (trackers.js, stage 5). Each has
+ * `open()` (the channel was opened), `render()` (redraw) and `reload()`
+ * (fetch again, when something changed).
  */
 const screens = {};
 
@@ -675,6 +676,10 @@ function handleEvent(event) {
     case "plans":
       if (currentChannel()?.kind === "planner") screens.planner.reload();
       break;
+    case "log":
+      if (currentChannel()?.kind === "trackers") screens.trackers.reload();
+      if (currentChannel()?.kind === "planner") screens.planner.reload();
+      break;
   }
 }
 
@@ -702,7 +707,7 @@ function renderAll() {
   renderChannelHeader();
   // A planner channel shows its screen; a text channel, its messages and composer.
   const screen = screens[currentChannel()?.kind];
-  for (const [kind, element] of [["planner", $("planner")]]) element.hidden = currentChannel()?.kind !== kind;
+  for (const kind of ["planner", "trackers"]) $(kind).hidden = currentChannel()?.kind !== kind;
   els.messages.hidden = Boolean(screen);
   if (screen) {
     els.composer.hidden = true;
@@ -799,7 +804,7 @@ function moveChannelIndicator() {
 }
 
 /** The icon for each kind of channel. */
-const CHANNEL_ICONS = { text: "#icon-hash", planner: "#icon-calendar" };
+const CHANNEL_ICONS = { text: "#icon-hash", planner: "#icon-calendar", trackers: "#icon-trackers" };
 
 /** The icon for a kind of channel. */
 function channelIcon(kind) {
@@ -1705,11 +1710,30 @@ function openNewChannel() {
   $("new-channel-dialog").showModal();
 }
 
-/** Suggest a name for a planner channel. */
+/** Suggest a name for a planner or trackers channel. */
 function updateNewChannelKind() {
   const form = $("new-channel-form").elements;
   $("new-channel-topic-row").hidden = form.kind.value !== "text";
-  if (form.kind.value === "planner" && !form.name.value) form.name.value = "planner";
+  if (form.kind.value !== "text" && !form.name.value) form.name.value = form.kind.value;
+}
+
+/**
+ * Show a message in its channel, scrolled into view and highlighted for a
+ * moment: "show the message" on a sticker that came from chat (stage 5).
+ */
+async function showMessage(messageId) {
+  try {
+    const { message } = await api("GET", `/api/messages/${encodeURIComponent(messageId)}`);
+    for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+    await openChannel(message.channelId);
+    const element = els.messages.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+    if (!element) return;
+    element.scrollIntoView({ block: "center" });
+    element.classList.add("highlighted");
+    setTimeout(() => element.classList.remove("highlighted"), 2500);
+  } catch (error) {
+    showNotice(`Couldn't show that message: ${error.message}`);
+  }
 }
 
 /**

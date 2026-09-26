@@ -88,6 +88,14 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `--card-bg`, `--card-border` | Plan cards, and days in the weekly list |
 | `--calculated-text` | Values that are worked out, never typed, like draw time |
 
+### Trackers and stickers
+
+| Variable | What it sets |
+| --- | --- |
+| `--sticker-bg`, `--sticker-text` | A sticker (a log entry on a day) |
+| `--sticker-yes-bg`, `--sticker-no-bg` | Yes and no stickers |
+| `--highlight-bg` | A message you jumped to with "show the message" |
+
 ### Controls
 
 | Variable | What it sets |
@@ -136,6 +144,14 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.review-list`, `.review-row`, `.review-day`, `.review-weekday`, `.review-type`, `.review-hours`, `.review-draw`, `.review-draw-time`, `.review-remove` | The review list. A row gets `.has-warnings` or `.has-error`; `.review-draw` gets `.not-regular` for meetings and on-call. |
 | `.time-pair`, `.time-pair-label` | Two time boxes ("from" and "to") with their label |
 | `.review-notes`, `.review-warning`, `.review-error` | A row's ⚠️ warnings and ✗ error |
+| `.trackers-view`, `.trackers-toolbar`, `.trackers-intro`, `.tracker-list`, `.trackers-empty` | The trackers channel's screen |
+| `.tracker-card`, `.tracker-card-head`, `.tracker-name`, `.tracker-edit`, `.tracker-hints`, `.hint-word` | A tracker. Has `data-kind` (`yesno`, `scale`, `note`). |
+| `.tracker-strip`, `.tracker-day`, `.tracker-day-label` | The two-week strip. A day has `data-date`, and `.today`. |
+| `.quick-log`, `.quick-log-label`, `.quick-log-scale`, `.quick-log-note` | Logging today in one tap |
+| `.log-entries`, `.log-entry`, `.log-entry-date`, `.message-link` | A tracker's latest stickers, and "show the message" |
+| `.log-sticker` | A sticker. Has `data-kind`, `data-value` and `data-source` (`user`, `processing`, `confirmed`). |
+| `.calendar-stickers`, `.day-panel-stickers`, `.day-stickers-title`, `.day-stickers`, `.day-sticker-add` | Stickers on calendar days: dots in the grid, and the day panel's list |
+| `.message.highlighted` | A message you jumped to |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

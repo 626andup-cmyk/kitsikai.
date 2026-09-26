@@ -21,6 +21,7 @@ import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { Plans } from "./planner.ts";
 import { Profiles } from "./profiles.ts";
+import { Trackers } from "./trackers.ts";
 import type { Author, Channel, ChannelKind, Message, Settings } from "./types.ts";
 
 export { NotFoundError, ValidationError };
@@ -156,10 +157,10 @@ export function themeId(value: unknown, field: string): string {
 }
 
 /** The kinds of channel you can make (see `ChannelKind`). */
-export const CHANNEL_KINDS: ChannelKind[] = ["text", "planner"];
+export const CHANNEL_KINDS: ChannelKind[] = ["text", "planner", "trackers"];
 
 /** Kinds of channel that show a screen instead of a chat. You can only have one of each. */
-export const SCREEN_KINDS: ChannelKind[] = ["planner"];
+export const SCREEN_KINDS: ChannelKind[] = ["planner", "trackers"];
 
 /** The fields you give when creating a channel. */
 export interface NewChannel {
@@ -336,12 +337,14 @@ export class Store {
   readonly profiles: Profiles;
   /** Plans: shifts and events (see `src/planner.ts`). */
   readonly plans: Plans;
+  /** Trackers and their log entries (see `src/trackers.ts`). */
+  readonly trackers: Trackers;
 
   /**
    * Open (or create) the database inside `dataDir`.
    *
    * The very first time, it's filled with starting content: a `#general`
-   * channel, the 📅 planner, and one connection profile.
+   * channel, the 📅 planner, the trackers, and one connection profile.
    *
    * @param dataDir  Folder for the database. Created if it doesn't exist.
    *                 Pass `":memory:"` for a throwaway database (for tests).
@@ -355,6 +358,7 @@ export class Store {
     this.db = openDatabase(path);
     this.profiles = new Profiles(this.db);
     this.plans = new Plans(this.db);
+    this.trackers = new Trackers(this.db);
 
     if (isNew) this.seed();
   }
@@ -364,6 +368,7 @@ export class Store {
     this.db.transaction(() => {
       this.insertChannel("general", "text");
       this.insertChannel("planner", "planner");
+      this.insertChannel("trackers", "trackers");
       this.profiles.create({ name: DEFAULT_MODEL.split("/").at(-1), model: DEFAULT_MODEL });
     })();
   }

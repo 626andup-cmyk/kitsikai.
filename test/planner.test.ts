@@ -260,6 +260,7 @@ describe("plans in the database", () => {
     expect(store.listChannels().map((c) => [c.name, c.kind])).toEqual([
       ["general", "text"],
       ["planner", "planner"],
+      ["trackers", "trackers"],
     ]);
   });
 

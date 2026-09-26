@@ -44,6 +44,16 @@
  *   POST   /api/screenshots/check         Check edited review rows again (warnings, draw time)
  *   POST   /api/screenshots/save          Save review rows as checked shifts
  *
+ *   GET    /api/trackers                  Every tracker
+ *   POST   /api/trackers                  Make a tracker
+ *   PATCH  /api/trackers/:id              Change a tracker
+ *   DELETE /api/trackers/:id              Delete a tracker and its log entries
+ *   GET    /api/log?from=&to=&tracker=    Log entries, newest first (any filters optional)
+ *   POST   /api/log                       Add a log entry (a sticker on a day)
+ *   PATCH  /api/log/:id                   Change a log entry's day or value
+ *   DELETE /api/log/:id                   Delete a log entry
+ *
+ *   GET    /api/messages/:id              One message (to show where a log entry came from)
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
  *
@@ -503,7 +513,90 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       },
     },
 
+    // -------------------------------------------------- trackers and log
+    {
+      method: "GET",
+      pattern: "/api/trackers",
+      handler: () => json({ trackers: store.trackers.list() }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/trackers",
+      handler: async (request) => {
+        const tracker = store.trackers.create(await readObject(request));
+        events.publish({ type: "log" });
+        return json({ tracker });
+      },
+    },
+    {
+      method: "PATCH",
+      pattern: "/api/trackers/:id",
+      handler: async (request, { id }) => {
+        const tracker = store.trackers.update(id!, await readObject(request));
+        events.publish({ type: "log" });
+        return json({ tracker });
+      },
+    },
+    {
+      method: "DELETE",
+      pattern: "/api/trackers/:id",
+      handler: (_request, { id }) => {
+        store.trackers.delete(id!);
+        events.publish({ type: "log" });
+        return json({ ok: true });
+      },
+    },
+    {
+      method: "GET",
+      pattern: "/api/log",
+      handler: (request) => {
+        const params = new URL(request.url).searchParams;
+        const from = params.get("from");
+        const to = params.get("to");
+        for (const [name, value] of [["from", from], ["to", to]] as const) {
+          if (value !== null && !isDate(value)) throw new HttpError(400, `"${name}" must be a date like 2026-09-28.`);
+        }
+        const trackerId = params.get("tracker") || undefined;
+        if (trackerId) store.trackers.get(trackerId); // 404 for an unknown tracker
+        return json({ entries: store.trackers.entries({ trackerId, from: from ?? undefined, to: to ?? undefined }) });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/log",
+      handler: async (request) => {
+        const body = await readObject(request);
+        // Entries you add yourself; the others come from processing (stage 7).
+        const entry = store.trackers.addEntry({ trackerId: String(body.trackerId ?? ""), date: body.date as string, value: body.value });
+        events.publish({ type: "log" });
+        return json({ entry });
+      },
+    },
+    {
+      method: "PATCH",
+      pattern: "/api/log/:id",
+      handler: async (request, { id }) => {
+        const entry = store.trackers.updateEntry(id!, await readObject(request));
+        events.publish({ type: "log" });
+        return json({ entry });
+      },
+    },
+    {
+      method: "DELETE",
+      pattern: "/api/log/:id",
+      handler: (_request, { id }) => {
+        store.trackers.deleteEntry(id!);
+        events.publish({ type: "log" });
+        return json({ ok: true });
+      },
+    },
+
     // ---------------------------------------------------------- messages
+    {
+      method: "GET",
+      pattern: "/api/messages/:id",
+      handler: (_request, { id }) => json({ message: store.getMessage(id!) }),
+    },
     {
       method: "PATCH",
       pattern: "/api/messages/:id",

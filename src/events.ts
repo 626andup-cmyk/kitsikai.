@@ -39,7 +39,9 @@ export type ServerEvent =
   /** The channel list changed. */
   | { type: "channels"; channels: Channel[] }
   /** Plans changed (the planner reloads what it shows). */
-  | { type: "plans" };
+  | { type: "plans" }
+  /** Trackers or log entries changed. */
+  | { type: "log" };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

@@ -27,12 +27,12 @@ describe("a new database", () => {
     const db = new Database(join(dir.path, "kitsikai.db"));
     expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     db.close();
-    expect(store.listChannels().map((c) => c.name)).toEqual(["general", "planner"]);
+    expect(store.listChannels().map((c) => c.name)).toEqual(["general", "planner", "trackers"]);
 
     // Opening it again doesn't seed again.
     store.close();
     store = new Store(dir.path);
-    expect(store.listChannels()).toHaveLength(2);
+    expect(store.listChannels()).toHaveLength(3);
     expect(store.profiles.list()).toHaveLength(1);
   });
 
@@ -47,7 +47,7 @@ describe("a new database", () => {
 });
 
 describe("upgrading", () => {
-  test("a stage 2 database gets a planner channel at the bottom of its list", () => {
+  test("a stage 2 database gets planner and trackers channels at the bottom of its list", () => {
     store.close();
     // Build a database as stage 2 left it: migrations 1 and 2 only.
     const path = join(dir.path, "old.db");
@@ -65,6 +65,7 @@ describe("upgrading", () => {
       { name: "general", kind: "text", position: 0 },
       { name: "gaming", kind: "text", position: 1 },
       { name: "planner", kind: "planner", position: 2 },
+      { name: "trackers", kind: "trackers", position: 3 },
     ]);
     upgraded.close();
     store = new Store(":memory:");

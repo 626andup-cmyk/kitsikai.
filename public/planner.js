@@ -142,7 +142,11 @@ async function loadPlanner() {
     if (planner.view === "calendar") {
       const { start, end } = calendarRange();
       const month = planner.month;
-      const { occurrences } = await api("GET", `/api/plans?from=${start}&to=${end}`);
+      const [{ occurrences }] = await Promise.all([
+        api("GET", `/api/plans?from=${start}&to=${end}`),
+        // Tracker stickers on the days (trackers.js, stage 5).
+        loadStickers(start, end),
+      ]);
       if (planner.month !== month) return; // moved on while loading
       planner.occurrences = occurrences;
     } else {
@@ -222,6 +226,15 @@ function renderCalendar() {
       chip.textContent = `${PLAN_ICONS[other.plan.kind]} ${other.plan.title}`;
       cell.append(chip);
     }
+    // A small dot for each sticker that day (stage 5).
+    const stickers = stickersOn(date);
+    if (stickers.length) {
+      const dots = document.createElement("span");
+      dots.className = "calendar-stickers";
+      dots.textContent = "•".repeat(Math.min(stickers.length, 5));
+      dots.title = `${stickers.length} sticker${stickers.length === 1 ? "" : "s"}`;
+      cell.append(dots);
+    }
     cell.addEventListener("click", () => {
       planner.selectedDate = date;
       renderCalendar();
@@ -246,8 +259,8 @@ function renderDayPanel() {
   } else {
     list.replaceChildren(...onDay.map(planCard));
   }
-  // Stage 5 adds tracker stickers here.
-  if (typeof renderDayStickers === "function") renderDayStickers(date);
+  // The day's tracker stickers (trackers.js, stage 5).
+  renderDayStickers(date);
 }
 
 /** A plan's full card: everything about it, with calculated values greyed. */

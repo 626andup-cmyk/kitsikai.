@@ -20,9 +20,9 @@ export type Author = "user" | "kitsikai";
  *
  * - `"text"`: a conversation with her.
  * - `"planner"` (stage 3) and `"trackers"` (stage 5): opening these shows
- *   their screen instead of a chat.
+ *   their screen instead of a chat. There's one of each at most.
  */
-export type ChannelKind = "text" | "planner";
+export type ChannelKind = "text" | "planner" | "trackers";
 
 /** A channel: one conversation with her. */
 export interface Channel {
@@ -319,4 +319,53 @@ export interface CheckedRow extends ScreenshotRow {
   warnings: string[];
   /** Something that does: a missing date or time. */
   error: string | null;
+}
+
+// ------------------------------------------------------------ stage 5
+
+/**
+ * What a tracker records:
+ *
+ * - `"yesno"`: whether it happened ("took meds").
+ * - `"scale"`: how much, from 1 to 10 ("headache").
+ * - `"note"`: a few words ("payday: $1,240").
+ */
+export type TrackerKind = "yesno" | "scale" | "note";
+
+/** A tracker: "please keep an eye out for this". */
+export interface Tracker {
+  id: string;
+  /** "headache", "took meds", "payday". */
+  name: string;
+  kind: TrackerKind;
+  /**
+   * Your keywords. Clues for Jev (stage 7), not rules: Jev still decides
+   * whether it actually happened, so "I *don't* have a headache" doesn't
+   * log one.
+   */
+  hintWords: string[];
+  /** If false, it's logged quietly and she never raises it unprompted. */
+  canBringUp: boolean;
+  position: number;
+  createdAt: string;
+}
+
+/**
+ * How a log entry got there: you added it, processing committed it
+ * (stage 7), or she asked and you confirmed.
+ */
+export type LogSource = "user" | "processing" | "confirmed";
+
+/** A log entry: a sticker on a day. */
+export interface LogEntry {
+  id: string;
+  trackerId: string;
+  date: string;
+  /** "yes" or "no", a number from 1 to 10 as text, or a note. */
+  value: string;
+  source: LogSource;
+  /** The message it came from, if any, so you can see exactly where. */
+  messageId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

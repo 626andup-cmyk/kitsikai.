@@ -252,6 +252,8 @@ All through nanoGPT, using Aettica's connection profiles and roulettes. Each job
 
 Each stage adds one new concept, so there's only ever one new thing to learn.
 
+**Progress:** stage 1 is built. See [docs/stage-1.md](docs/stage-1.md).
+
 | Stage | Adds | New concept learned |
 | --- | --- | --- |
 | 1 | Fresh repo with Aettica furniture: server, nanoGPT, profiles, themes and glass, PWA; one chat with Kitsikai | Reusing code across projects |

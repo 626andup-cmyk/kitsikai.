@@ -1,0 +1,512 @@
+<!doctype html>
+<!--
+  Kitsikai's single page. The layout is:
+
+    .app
+      .sidebar          app name, channel list, her card + settings
+      .sidebar-scrim    dark overlay behind the sidebar on phones
+      .channel-view     the open channel:
+        .channel-header   channel name, channel settings
+        .messages         the message list
+        .composer         your text box, Send, and "Her turn"
+    dialogs             settings, channel settings, profiles, appearance,
+                        theme editor, prompt preview
+
+  All behaviour lives in app.js; all styling in style.css.
+
+  Theme-ready (same system as Aettica): every styled element has a
+  descriptive class a theme can target, and elements with the `surface`
+  class (panels you look *through* in a glass theme) never use ::before or
+  ::after in the base styles, so themes are free to use them for highlights
+  and glows. See docs/theme-reference.md.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- viewport-fit=cover lets the app use the whole screen on phones with notches. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Kitsikai</title>
+    <meta name="description" content="Text with Kitsikai, your AI friend." />
+    <meta name="theme-color" content="#1e1f22" />
+
+    <!-- PWA: these let you "Add to Home screen" and open Kitsikai like an app. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <link rel="stylesheet" href="/style.css" />
+    <!--
+      Theme stylesheets, filled in by app.js (see applyThemes). They come
+      after style.css so they win, in this order: the app theme, its Lite
+      version, the open channel's theme, and that one's Lite version.
+    -->
+    <link rel="stylesheet" id="theme-app" />
+    <link rel="stylesheet" id="theme-app-lite" />
+    <link rel="stylesheet" id="theme-channel" />
+    <link rel="stylesheet" id="theme-channel-lite" />
+    <!-- `defer` runs the scripts after the page is parsed, in order, so every element below exists. -->
+    <!-- Real refraction for liquid glass themes (see the top of glass.js). -->
+    <script src="/glass.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="icon-gear" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"
+        />
+      </symbol>
+      <symbol id="icon-hash" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M10 3 9.3 8H5v2h4l-.6 4H4v2h4.1l-.7 5h2l.7-5h4l-.7 5h2l.7-5H20v-2h-3.9l.6-4H21V8h-4l.7-5h-2L15 8h-4l.7-5h-2Zm.9 7h4l-.6 4h-4l.6-4Z"
+        />
+      </symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+      </symbol>
+      <symbol id="icon-palette" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
+        />
+      </symbol>
+      <symbol id="icon-menu" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M3 6h18v2H3V6Zm0 5h18v2H3v-2Zm0 5h18v2H3v-2Z" />
+      </symbol>
+    </svg>
+
+    <!--
+      Empty layers a theme can draw on (pictures, rain, glows), behind the
+      whole app. Hidden unless a theme shows them. See docs/theme-reference.md.
+    -->
+    <div class="theme-layers" aria-hidden="true"><i class="layer-1"></i><i class="layer-2"></i><i class="layer-3"></i><i class="layer-4"></i></div>
+
+    <div class="app" id="app">
+      <!-- ============================================================ sidebar -->
+      <nav class="sidebar surface" id="sidebar" aria-label="Channels">
+        <header class="sidebar-header">
+          <h1 class="server-name" id="server-name">Kitsikai</h1>
+        </header>
+
+        <!-- Filled in by app.js: one <li> per channel. -->
+        <ul class="channel-list" id="channel-list"></ul>
+
+        <footer class="sidebar-footer">
+          <div class="kitsikai-card">
+            <div class="avatar kitsikai-avatar" id="kitsikai-avatar" aria-hidden="true"></div>
+            <div class="kitsikai-card-text">
+              <div class="kitsikai-card-name" id="kitsikai-name"></div>
+              <div class="kitsikai-card-role">your friend</div>
+            </div>
+          </div>
+          <button id="appearance-button" class="icon-button" type="button" aria-label="Appearance" title="Appearance">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-palette" /></svg>
+          </button>
+          <button id="settings-button" class="icon-button" type="button" aria-label="Settings" title="Settings">
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-gear" /></svg>
+          </button>
+        </footer>
+      </nav>
+
+      <!-- Tapping outside the open sidebar on a phone closes it. -->
+      <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+      <!-- ======================================================= channel view -->
+      <!-- data-channel-id and data-channel-kind are set by app.js, for themes to hook onto. -->
+      <section class="channel-view" id="channel-view">
+        <!-- The same, for a channel theme: only shown when the channel has its own theme. -->
+        <div class="theme-layers" aria-hidden="true"><i class="layer-1"></i><i class="layer-2"></i><i class="layer-3"></i><i class="layer-4"></i></div>
+        <header class="channel-header surface">
+          <button id="menu-button" class="icon-button menu-button" type="button" aria-label="Show channels">
+            <svg width="22" height="22" aria-hidden="true"><use href="#icon-menu" /></svg>
+          </button>
+          <h2 class="channel-title">
+            <svg class="channel-icon" width="20" height="20" aria-hidden="true"><use id="channel-title-icon" href="#icon-hash" /></svg>
+            <span id="channel-name"></span>
+          </h2>
+          <span class="channel-topic" id="channel-topic"></span>
+          <button
+            id="channel-settings-button"
+            class="icon-button"
+            type="button"
+            aria-label="Channel settings"
+            title="Channel settings"
+          >
+            <svg width="20" height="20" aria-hidden="true"><use href="#icon-gear" /></svg>
+          </button>
+        </header>
+
+        <!-- A short notice, e.g. "Switched to Lite glass effects". -->
+        <div id="notice" class="notice-banner" role="status" hidden>
+          <span id="notice-text"></span>
+          <button id="notice-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
+        </div>
+
+        <!-- Shown when the server has a newer version of the app than this page. -->
+        <div id="update-banner" class="update-banner" role="status" hidden>
+          <span>Kitsikai has been updated.</span>
+          <button id="update-reload" type="button" class="button button-primary">Reload</button>
+        </div>
+
+        <main id="messages" class="messages" aria-live="polite">
+          <!-- Filled in by app.js. -->
+        </main>
+
+        <footer class="composer surface" id="composer">
+          <!-- Shown while she's writing in this channel. -->
+          <div id="status" class="status" hidden>
+            <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="status-text">Kitsikai is typing…</span>
+            <!-- Stops the reply: nothing is saved, and the channel is free again. -->
+            <button id="stop-button" type="button" class="link-button stop-button">Stop</button>
+          </div>
+
+          <!-- Shown when something went wrong, e.g. the model didn't answer. -->
+          <div id="error" class="error-banner" role="alert" hidden>
+            <span id="error-text"></span>
+            <button id="error-retry" type="button" class="link-button">Try again</button>
+            <button id="error-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
+          </div>
+
+          <form id="composer-form" class="composer-row">
+            <textarea id="composer-input" class="composer-input" rows="1" aria-label="Your message"></textarea>
+            <div class="composer-buttons">
+              <span class="spacer"></span>
+              <button id="turn-button" type="button" class="button" title="Let her text without a new message from you">
+                Her turn
+              </button>
+              <button id="send-button" type="submit" class="button button-primary">Send</button>
+            </div>
+          </form>
+        </footer>
+      </section>
+    </div>
+
+    <!-- ============================================================ dialogs -->
+    <!-- A <dialog> gives us a modal with Escape-to-close for free. -->
+
+    <!-- App-wide settings. -->
+    <dialog id="settings-dialog" class="dialog surface">
+      <form id="settings-form" method="dialog">
+        <h2 class="dialog-title">Settings</h2>
+
+        <div class="grid assignment-grid">
+          <div>
+            <label for="setting-name">Her name</label>
+            <input id="setting-name" name="name" autocomplete="off" />
+          </div>
+          <div>
+            <label for="setting-user-name">Your name</label>
+            <input id="setting-user-name" name="userName" autocomplete="off" placeholder="optional" />
+          </div>
+        </div>
+
+        <label for="setting-persona">Who she is</label>
+        <p class="hint">Her personality and how she texts. Used in every channel.</p>
+        <textarea id="setting-persona" name="persona" rows="8"></textarea>
+
+        <label for="setting-chat-assignment">Her messages are written by</label>
+        <select id="setting-chat-assignment" name="chatAssignment"></select>
+        <p class="hint">
+          A channel can override this in its own settings.
+          <button type="button" class="link-button inline-link" id="open-models">Profiles and roulettes…</button>
+        </p>
+
+        <label for="setting-history">History</label>
+        <input id="setting-history" name="historyLimit" type="number" min="1" max="1000" step="1" />
+        <p class="hint">How many recent messages in a channel she can see.</p>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- The open channel's settings. -->
+    <dialog id="channel-dialog" class="dialog surface">
+      <form id="channel-form" method="dialog">
+        <h2 class="dialog-title">Channel settings</h2>
+
+        <label for="channel-setting-name">Channel name</label>
+        <input id="channel-setting-name" name="name" autocomplete="off" />
+
+        <label for="channel-setting-assignment">Written by</label>
+        <p class="hint">The connection profile or roulette that writes her messages here.</p>
+        <select id="channel-setting-assignment" name="assignment"></select>
+
+        <label for="channel-setting-theme">Theme</label>
+        <p class="hint">A channel's own theme only changes the channel itself, not the channel list.</p>
+        <select id="channel-setting-theme" name="theme"></select>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button" id="preview-prompt">Preview prompt</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+
+        <details class="danger-zone">
+          <summary>Danger zone</summary>
+          <div class="danger-buttons">
+            <button id="clear-channel" type="button" class="button button-danger">Delete every message</button>
+          </div>
+        </details>
+      </form>
+    </dialog>
+
+    <!-- Connection profiles and roulettes. Filled in by app.js. -->
+    <dialog id="models-dialog" class="dialog surface">
+      <h2 class="dialog-title">Profiles and roulettes</h2>
+      <p class="hint">
+        A <strong>connection profile</strong> is one model with its settings. A <strong>roulette</strong> picks one of
+        several profiles at random each turn, by weight, for variety. Neither changes who she is.
+      </p>
+
+      <h3 class="section-title">Profiles</h3>
+      <ul id="profile-list" class="profile-list"></ul>
+      <button type="button" class="button" id="new-profile">New profile</button>
+
+      <h3 class="section-title">Roulettes</h3>
+      <ul id="roulette-list" class="profile-list"></ul>
+      <button type="button" class="button" id="new-roulette">New roulette</button>
+
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- One connection profile. -->
+    <dialog id="profile-dialog" class="dialog surface">
+      <form id="profile-form" method="dialog">
+        <h2 class="dialog-title" id="profile-title">Profile</h2>
+
+        <label for="profile-name">Name</label>
+        <input id="profile-name" name="name" autocomplete="off" placeholder="e.g. DeepSeek, warm" />
+
+        <label for="profile-model">Model</label>
+        <div class="inline">
+          <input id="profile-model" name="model" list="model-list" autocomplete="off" spellcheck="false" />
+          <button id="load-models" type="button" class="button">Load list</button>
+        </div>
+        <datalist id="model-list"></datalist>
+
+        <div class="grid">
+          <div>
+            <label for="profile-temperature">Temperature</label>
+            <input id="profile-temperature" name="temperature" type="number" min="0" max="2" step="0.05" />
+          </div>
+          <div>
+            <label for="profile-max-tokens">Max tokens</label>
+            <input id="profile-max-tokens" name="maxTokens" type="number" min="16" max="32000" step="1" />
+          </div>
+          <div>
+            <label for="profile-top-p">Top P</label>
+            <input id="profile-top-p" name="topP" type="number" min="0" max="1" step="0.01" placeholder="auto" />
+          </div>
+        </div>
+
+        <label for="profile-reasoning">Reasoning</label>
+        <select id="profile-reasoning" name="reasoningEffort">
+          <option value="">The model's default</option>
+          <option value="low">Low effort</option>
+          <option value="medium">Medium effort</option>
+          <option value="high">High effort</option>
+        </select>
+        <p class="hint">Only for reasoning models. Their thinking is never shown or saved.</p>
+
+        <label class="check-option">
+          <input type="checkbox" name="supportsTools" />
+          <span
+            ><strong>Can use tools</strong><br /><span class="hint"
+              >Lets her look things up (from stage 6). Turn off for models that can't, and they'll just write.</span
+            ></span
+          >
+        </label>
+
+        <label for="profile-quirk">Model notes</label>
+        <p class="hint">Tame this model's habits, e.g. "Keep messages short." Not for personality: that's her persona.</p>
+        <textarea id="profile-quirk" name="quirkPrompt" rows="3"></textarea>
+
+        <details class="advanced">
+          <summary>Extra request fields</summary>
+          <p class="hint">A JSON object sent with each request, for settings not listed above, e.g. <code>{"top_k": 40}</code>.</p>
+          <textarea id="profile-extra" name="extraParams" rows="3" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <!-- Checks whether this profile's model can actually call tools. -->
+        <div class="tool-test-row">
+          <button type="button" class="button" id="profile-test">Test tools</button>
+          <p class="hint tool-test" id="profile-test-result" role="status"></p>
+        </div>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="profile-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- One roulette: profiles and their weights. -->
+    <dialog id="roulette-dialog" class="dialog surface">
+      <form id="roulette-form" method="dialog">
+        <h2 class="dialog-title" id="roulette-title">Roulette</h2>
+
+        <label for="roulette-name">Name</label>
+        <input id="roulette-name" name="name" autocomplete="off" placeholder="e.g. Variety" />
+
+        <label>Profiles and weights</label>
+        <p class="hint">Each turn picks one, with a chance in proportion to its weight.</p>
+        <div id="roulette-entries" class="roulette-entries"></div>
+        <button type="button" class="button" id="roulette-add">Add a profile</button>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="roulette-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- "Regenerate with...": pick a profile, or roll the channel's again. -->
+    <dialog id="regenerate-dialog" class="dialog surface">
+      <form id="regenerate-form" method="dialog">
+        <h2 class="dialog-title">Regenerate with</h2>
+        <select id="regenerate-profile" name="profileId"></select>
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
+          <button type="submit" class="button button-primary">Regenerate</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Appearance: pick the app theme, glass effects, and manage your themes. -->
+    <dialog id="appearance-dialog" class="dialog surface">
+      <h2 class="dialog-title">Appearance</h2>
+
+      <label>App theme</label>
+      <p class="hint">Used everywhere, unless a channel has its own theme (channel settings).</p>
+      <div id="theme-list" class="theme-list" role="radiogroup" aria-label="App theme"></div>
+
+      <div class="dialog-buttons theme-actions">
+        <button type="button" class="button" id="theme-copy">Copy to edit</button>
+        <button type="button" class="button" id="theme-edit">Edit</button>
+        <button type="button" class="button button-danger" id="theme-delete">Delete</button>
+      </div>
+
+      <!-- Sliders the app theme (and the open channel's theme) offer, if any. -->
+      <div id="theme-options" class="theme-options" hidden></div>
+
+      <fieldset class="kind-picker effects-picker">
+        <legend>Glass effects on this device</legend>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="auto" />
+          <span
+            ><strong>Automatic</strong><br /><span class="hint">Full effects, switching to Lite if scrolling stutters.</span></span
+          >
+        </label>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="full" />
+          <span><strong>Full</strong><br /><span class="hint">Real blurred glass.</span></span>
+        </label>
+        <label class="kind-option">
+          <input type="radio" name="effects" value="lite" />
+          <span
+            ><strong>Lite</strong><br /><span class="hint">No blur: more solid panels that are easier on the phone.</span></span
+          >
+        </label>
+      </fieldset>
+
+      <p class="form-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Done</button>
+      </div>
+    </dialog>
+
+    <!-- Editing one of your themes. -->
+    <dialog id="theme-editor" class="dialog surface theme-editor">
+      <form id="theme-editor-form" method="dialog">
+        <h2 class="dialog-title">Edit theme</h2>
+
+        <label for="theme-name">Name</label>
+        <input id="theme-name" name="name" autocomplete="off" />
+
+        <label for="theme-description">Description</label>
+        <input id="theme-description" name="description" autocomplete="off" />
+
+        <label for="theme-css">CSS</label>
+        <p class="hint">
+          Change the values of the tokens, or style anything else. The full list is in
+          <code>docs/theme-reference.md</code>. Press Apply to see your changes.
+        </p>
+        <textarea id="theme-css" name="css" rows="14" spellcheck="false" class="code-input"></textarea>
+
+        <details class="lite-css">
+          <summary>Lite version (optional)</summary>
+          <p class="hint">
+            Loaded on top of the CSS above when glass effects are Lite. Usually: turn off blur and make panels more
+            solid, e.g. <code>--sidebar-backdrop: none;</code>
+          </p>
+          <textarea id="theme-lite-css" name="liteCss" rows="8" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <details class="lite-css theme-options-editor">
+          <summary>Sliders (optional)</summary>
+          <p class="hint">
+            Sliders shown in Appearance, each setting a CSS variable your CSS uses. A JSON list, e.g.
+            <code>[{"id": "blur", "label": "Blur", "variable": "--my-blur", "min": 0, "max": 30, "step": 1, "default": 12, "unit": "px"}]</code>
+          </p>
+          <textarea id="theme-options-json" name="options" rows="6" spellcheck="false" class="code-input"></textarea>
+        </details>
+
+        <label>Images and fonts</label>
+        <p class="hint">Use a file in the CSS by its name, e.g. <code>--app-background: url(sky.jpg) center / cover;</code></p>
+        <ul id="theme-files" class="theme-files"></ul>
+        <label class="button file-button">
+          Add files…
+          <input id="theme-upload" type="file" multiple accept="image/*,.woff,.woff2,.ttf,.otf" hidden />
+        </label>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Close</button>
+          <button type="button" class="button" id="theme-apply">Apply</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Shows the exact prompt stack her next turn would send. -->
+    <dialog id="prompt-dialog" class="dialog surface">
+      <h2 class="dialog-title">Prompt preview</h2>
+      <p class="hint">This is exactly what the model receives on her next turn in this channel.</p>
+      <div id="prompt-preview"></div>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
+    </dialog>
+  </body>
+</html>

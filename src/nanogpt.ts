@@ -1,0 +1,299 @@
+/**
+ * A small client for nanoGPT's API.
+ *
+ * nanoGPT gives one API key access to many models (DeepSeek, GLM, Kimi, ...)
+ * and speaks the same "chat completions" format as OpenAI. A request is a
+ * plain HTTPS POST with a JSON body:
+ *
+ *   POST https://nano-gpt.com/api/v1/chat/completions
+ *   Authorization: Bearer <your key>
+ *   { "model": "...", "messages": [...], "temperature": 0.9, "max_tokens": 1024 }
+ *
+ * and the reply is JSON with the generated text at
+ * `choices[0].message.content`.
+ *
+ * This file uses the built-in `fetch`, so there is no SDK to install.
+ */
+
+import type { ApiMessage, ReasoningEffort } from "./types.ts";
+
+/** What the client needs to know to reach the API. */
+export interface ApiOptions {
+  apiKey: string;
+  /** e.g. `https://nano-gpt.com/api/v1` (no trailing slash). */
+  baseUrl: string;
+  /** Give up after this many milliseconds. */
+  timeoutMs: number;
+}
+
+/** A tool the model may call, in the API's format (see `src/tools.ts`). */
+export interface ToolSpec {
+  type: "function";
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+/** A tool call the model asked for, as returned by the API. */
+export interface NativeToolCall {
+  id: string;
+  name: string;
+  /** The arguments as the model wrote them: JSON text, which may be broken. */
+  arguments: string;
+}
+
+/** The parameters of one generation request. */
+export interface CompletionRequest {
+  model: string;
+  messages: ApiMessage[];
+  temperature: number;
+  maxTokens: number;
+  /** Nucleus sampling. Left out of the request when not set. */
+  topP?: number | null;
+  /** How hard a reasoning model thinks. Left out when not set. */
+  reasoningEffort?: ReasoningEffort | null;
+  /** More request fields, sent as they are (a profile's extra parameters). */
+  extraParams?: Record<string, unknown>;
+  /** Tools the model may call. Left out when empty. */
+  tools?: ToolSpec[];
+  /**
+   * Accept a reply with no text and no tool calls instead of treating it as
+   * an error. Used after tool calls, when the model may have nothing more
+   * to say.
+   */
+  allowEmpty?: boolean;
+  /**
+   * Lets the caller stop the request early (the Stop button). When this
+   * signal fires, the request is abandoned and `CancelledError` is thrown.
+   */
+  signal?: AbortSignal;
+}
+
+/** A successful generation. */
+export interface CompletionResult {
+  /** The generated text, with any `<think>` reasoning removed. May be "" if the model only called tools. */
+  content: string;
+  /** Tool calls the model asked for through the API (not ones written as text). */
+  toolCalls: NativeToolCall[];
+  /** The model that actually answered, as reported by the API. */
+  model: string;
+  /** Why generation stopped: `"stop"` is normal, `"length"` means it hit `maxTokens`. */
+  finishReason: string | null;
+}
+
+/**
+ * An error from the API, carrying the HTTP status when there is one.
+ * The message is written to be shown to you directly in the app.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Thrown when a request was stopped on purpose, through its `signal`. */
+export class CancelledError extends Error {
+  constructor() {
+    super("The reply was stopped.");
+    this.name = "CancelledError";
+  }
+}
+
+/**
+ * Ask the model for one reply.
+ *
+ * Throws `CancelledError` if `request.signal` fires, and `ApiError` if the
+ * key is missing, the network fails, the request times out, the API returns
+ * an error, or the reply is empty.
+ */
+export async function createChatCompletion(
+  options: ApiOptions,
+  request: CompletionRequest,
+): Promise<CompletionResult> {
+  if (!options.apiKey) {
+    throw new ApiError("No nanoGPT API key is set. Add NANOGPT_API_KEY to your .env file and restart the server.");
+  }
+
+  // The request body. Note the API uses snake_case (`max_tokens`), while
+  // our own code uses camelCase (`maxTokens`).
+  const body = requestBody(request);
+  const json = await postJson(options, "/chat/completions", body, request.signal);
+
+  // Dig the text out of the response. Everything is checked because a model
+  // provider having a bad day can return all sorts of shapes.
+  const choice = (json as { choices?: unknown[] })?.choices?.[0] as
+    | { message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: string }
+    | undefined;
+  const rawContent = choice?.message?.content;
+  const toolCalls = readToolCalls(choice?.message?.tool_calls);
+  // With tool calls, content is often `null`: the model only acted.
+  if (typeof rawContent !== "string" && toolCalls.length === 0 && !request.allowEmpty) {
+    throw new ApiError("The model's reply didn't contain any text.");
+  }
+
+  const content = typeof rawContent === "string" ? stripReasoning(rawContent) : "";
+  if (content === "" && toolCalls.length === 0 && !request.allowEmpty) {
+    throw new ApiError(
+      choice?.finish_reason === "length"
+        ? "The model ran out of tokens before writing anything. Try raising Max tokens."
+        : "The model returned an empty reply.",
+    );
+  }
+
+  return {
+    content,
+    toolCalls,
+    model: typeof (json as { model?: unknown }).model === "string" ? (json as { model: string }).model : request.model,
+    finishReason: choice?.finish_reason ?? null,
+  };
+}
+
+/**
+ * The JSON body for a request. Optional settings are only sent when they're
+ * set, because some models reject parameters they don't know.
+ */
+export function requestBody(request: CompletionRequest): Record<string, unknown> {
+  return {
+    // A profile's extra fields go first, so the app's own fields win.
+    ...request.extraParams,
+    model: request.model,
+    messages: request.messages,
+    temperature: request.temperature,
+    max_tokens: request.maxTokens,
+    ...(request.topP != null ? { top_p: request.topP } : {}),
+    ...(request.reasoningEffort ? { reasoning_effort: request.reasoningEffort } : {}),
+    ...(request.tools && request.tools.length > 0 ? { tools: request.tools, tool_choice: "auto" } : {}),
+    // We wait for the whole reply rather than streaming it word by word.
+    // Streaming is a nice later improvement but adds complexity.
+    stream: false,
+  };
+}
+
+/**
+ * Read `message.tool_calls` from a response, tolerating the variations
+ * between providers: arguments sent as an object instead of JSON text, or a
+ * missing id.
+ */
+function readToolCalls(value: unknown): NativeToolCall[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw, index) => {
+    const call = raw as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+    const name = call?.function?.name;
+    if (typeof name !== "string" || name === "") return [];
+    const args = call.function?.arguments;
+    return [
+      {
+        id: typeof call.id === "string" && call.id ? call.id : `call_${index}`,
+        name,
+        arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}),
+      },
+    ];
+  });
+}
+
+/**
+ * List the model ids available to your key, for the settings panel.
+ * Returns them sorted alphabetically.
+ */
+export async function listModels(options: ApiOptions): Promise<string[]> {
+  const json = await request(options, "/models", { method: "GET" });
+  const data = (json as { data?: unknown })?.data;
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((entry) => (entry as { id?: unknown })?.id)
+    .filter((id): id is string => typeof id === "string")
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Remove "thinking" text from a reply.
+ *
+ * Some reasoning models put their private reasoning inside
+ * `<think>...</think>` tags at the start of the reply. That's not part of the
+ * message, so it's removed. (Models that send reasoning in a separate field
+ * don't need this; we simply never read that field.)
+ */
+export function stripReasoning(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+// ------------------------------------------------------------------ helpers
+
+function postJson(options: ApiOptions, path: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
+  return request(
+    options,
+    path,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    signal,
+  );
+}
+
+/**
+ * Send one request and return the parsed JSON response, turning every kind
+ * of failure into an `ApiError` (or `CancelledError`) with a readable message.
+ *
+ * @param signal  Optional: stops the request early when it fires.
+ */
+async function request(options: ApiOptions, path: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+  // Stop the request when *either* the timeout runs out or the caller's
+  // signal fires, whichever comes first.
+  const timeout = AbortSignal.timeout(options.timeoutMs);
+  const stop = signal ? AbortSignal.any([timeout, signal]) : timeout;
+
+  let response: Response;
+  let text: string;
+  // Both steps are inside the try: the model can stall before the reply
+  // starts *or* halfway through sending it, and either must be caught.
+  try {
+    response = await fetch(`${options.baseUrl}${path}`, {
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${options.apiKey}` },
+      signal: stop,
+    });
+    text = await response.text();
+  } catch (error) {
+    if (signal?.aborted) throw new CancelledError();
+    if (timeout.aborted) {
+      throw new ApiError(`The model took longer than ${Math.round(options.timeoutMs / 1000)} seconds to reply.`);
+    }
+    throw new ApiError(`Couldn't reach nanoGPT: ${(error as Error).message}`);
+  }
+
+  if (!response.ok) {
+    throw new ApiError(describeHttpError(response.status, text), response.status);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError("nanoGPT sent back something that isn't JSON.", response.status);
+  }
+}
+
+/** A friendly explanation for an HTTP error status, plus the API's own message if it sent one. */
+function describeHttpError(status: number, body: string): string {
+  const hints: Record<number, string> = {
+    401: "nanoGPT rejected the API key. Check NANOGPT_API_KEY in your .env file.",
+    402: "nanoGPT says your balance is too low.",
+    404: "nanoGPT doesn't recognise that model id. Check the model in settings.",
+    429: "nanoGPT is rate-limiting you. Wait a moment and try again.",
+  };
+  const hint = hints[status] ?? `nanoGPT returned an error (HTTP ${status}).`;
+
+  // Error bodies are usually `{ "error": { "message": "..." } }`.
+  let detail = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown } | string };
+    const err = parsed.error;
+    detail = typeof err === "string" ? err : typeof err?.message === "string" ? err.message : "";
+  } catch {
+    detail = body.slice(0, 200);
+  }
+  return detail ? `${hint} (${detail})` : hint;
+}

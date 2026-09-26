@@ -252,7 +252,7 @@ All through nanoGPT, using Aettica's connection profiles and roulettes. Each job
 
 Each stage adds one new concept, so there's only ever one new thing to learn.
 
-**Progress:** stages 1 and 2 are built. See [docs/stage-1.md](docs/stage-1.md) and [docs/stage-2.md](docs/stage-2.md).
+**Progress:** stages 1 to 3 are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md) and [docs/stage-3.md](docs/stage-3.md).
 
 | Stage | Adds | New concept learned |
 | --- | --- | --- |
@@ -281,4 +281,4 @@ Parked until the core works.
 - [ ] Which models reliably write the `<cht>` bubble format and handle tool calls? ("Test tools" and the tool log will answer the second.)
 - [ ] Good defaults for the snapshot interval (10 min?), processing interval (3 hours?), pin cap (10?), reply debounce (a few seconds?), and typing-delay numbers.
 - [ ] How far back does the interruption check look, and what counts as "a conversation in progress"?
-- [ ] Should week totals count on-call hours?
+- [x] Should week totals count on-call hours? Stage 3 shows them separately, marked "not counted", so both numbers are there.

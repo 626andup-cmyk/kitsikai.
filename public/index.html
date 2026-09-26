@@ -48,6 +48,8 @@
     <!-- Real refraction for liquid glass themes (see the top of glass.js). -->
     <script src="/glass.js" defer></script>
     <script src="/app.js" defer></script>
+    <!-- The 📅 planner channel's screen (stage 3). -->
+    <script src="/planner.js" defer></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -71,6 +73,13 @@
         <path
           fill="currentColor"
           d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
+        />
+      </symbol>
+      <symbol id="icon-calendar" viewBox="0 0 24 24">
+        <!-- A calendar page: the planner channel. -->
+        <path
+          fill="currentColor"
+          d="M7 2h2v2h6V2h2v2h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2V2ZM5 9v10h14V9H5Zm2 2h3v3H7v-3Z"
         />
       </symbol>
       <symbol id="icon-menu" viewBox="0 0 24 24">
@@ -157,6 +166,41 @@
         <main id="messages" class="messages" aria-live="polite">
           <!-- Filled in by app.js. -->
         </main>
+
+        <!--
+          The 📅 planner channel's screen (stage 3), shown instead of messages
+          and the composer. Filled in by planner.js.
+        -->
+        <section id="planner" class="planner-view" hidden>
+          <header class="planner-toolbar">
+            <div class="planner-tabs" role="tablist">
+              <button type="button" class="planner-tab" role="tab" data-view="calendar">Calendar</button>
+              <button type="button" class="planner-tab" role="tab" data-view="week">Week</button>
+            </div>
+            <div class="planner-period">
+              <button type="button" class="icon-button planner-nav" id="planner-prev" aria-label="Previous">‹</button>
+              <h3 class="planner-title" id="planner-title"></h3>
+              <button type="button" class="icon-button planner-nav" id="planner-next" aria-label="Next">›</button>
+            </div>
+            <span class="spacer"></span>
+            <button type="button" class="button" id="planner-today">Today</button>
+            <button type="button" class="button button-primary" id="planner-add">Add plan</button>
+          </header>
+
+          <div id="calendar-view" class="calendar-view">
+            <div id="calendar-grid" class="calendar"></div>
+            <section class="calendar-day-panel" id="day-panel">
+              <h3 class="day-panel-title" id="day-panel-title"></h3>
+              <div class="day-panel-cards" id="day-panel-cards"></div>
+              <!-- Tracker stickers for the day go here from stage 5. -->
+              <div class="day-panel-stickers" id="day-panel-stickers" hidden></div>
+            </section>
+          </div>
+
+          <div id="week-view" class="week-view" hidden>
+            <div id="week-list" class="week-list"></div>
+          </div>
+        </section>
 
         <footer class="composer surface" id="composer">
           <!--
@@ -266,7 +310,7 @@
         <input id="channel-setting-topic" name="topic" autocomplete="off" placeholder="e.g. work stuff, venting about shifts" />
         <p class="hint">What this channel is for. She sees it, and uses it to decide where to text you.</p>
 
-        <label class="check-option" id="channel-home-row">
+        <label class="check-option text-only" id="channel-home-row">
           <input type="checkbox" name="home" />
           <span
             ><strong>Home channel</strong><br /><span class="hint"
@@ -275,9 +319,11 @@
           >
         </label>
 
-        <label for="channel-setting-assignment">Written by</label>
-        <p class="hint">The connection profile or roulette that writes her messages here.</p>
-        <select id="channel-setting-assignment" name="assignment"></select>
+        <div class="text-only">
+          <label for="channel-setting-assignment">Written by</label>
+          <p class="hint">The connection profile or roulette that writes her messages here.</p>
+          <select id="channel-setting-assignment" name="assignment"></select>
+        </div>
 
         <label for="channel-setting-theme">Theme</label>
         <p class="hint">A channel's own theme only changes the channel itself, not the channel list.</p>
@@ -288,7 +334,7 @@
         <div class="dialog-buttons">
           <button type="button" class="button" id="channel-move-up" title="Move up in the sidebar">↑</button>
           <button type="button" class="button" id="channel-move-down" title="Move down in the sidebar">↓</button>
-          <button type="button" class="button" id="preview-prompt">Preview prompt</button>
+          <button type="button" class="button text-only" id="preview-prompt">Preview prompt</button>
           <span class="spacer"></span>
           <button type="button" class="button" data-close>Cancel</button>
           <button type="submit" class="button button-primary">Save</button>
@@ -297,7 +343,7 @@
         <details class="danger-zone">
           <summary>Danger zone</summary>
           <div class="danger-buttons">
-            <button id="clear-channel" type="button" class="button button-danger">Delete every message</button>
+            <button id="clear-channel" type="button" class="button button-danger text-only">Delete every message</button>
             <button id="delete-channel" type="button" class="button button-danger">Delete channel</button>
           </div>
         </details>
@@ -309,12 +355,30 @@
       <form id="new-channel-form" method="dialog">
         <h2 class="dialog-title">New channel</h2>
 
+        <fieldset class="kind-picker">
+          <legend>Type</legend>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="text" checked />
+            <span><strong># Text</strong><br /><span class="hint">A conversation with her.</span></span>
+          </label>
+          <label class="kind-option">
+            <input type="radio" name="kind" value="planner" />
+            <span
+              ><strong>📅 Planner</strong><br /><span class="hint"
+                >Your shifts and plans, as a calendar and a weekly list. You can only have one.</span
+              ></span
+            >
+          </label>
+        </fieldset>
+
         <label for="new-channel-name">Channel name</label>
         <input id="new-channel-name" name="name" autocomplete="off" placeholder="e.g. gaming" />
 
-        <label for="new-channel-topic">Topic</label>
-        <input id="new-channel-topic" name="topic" autocomplete="off" placeholder="optional, e.g. games and streams" />
-        <p class="hint">Channels split up your conversations, but not her: she remembers everything from all of them.</p>
+        <div id="new-channel-topic-row">
+          <label for="new-channel-topic">Topic</label>
+          <input id="new-channel-topic" name="topic" autocomplete="off" placeholder="optional, e.g. games and streams" />
+          <p class="hint">Channels split up your conversations, but not her: she remembers everything from all of them.</p>
+        </div>
 
         <p class="form-error" role="alert" hidden></p>
 
@@ -556,6 +620,110 @@
           <span class="spacer"></span>
           <button type="button" class="button" data-close>Close</button>
           <button type="button" class="button" id="theme-apply">Apply</button>
+          <button type="submit" class="button button-primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- A plan: anything planned, on a day, maybe at a time (stage 3). -->
+    <dialog id="plan-dialog" class="dialog surface plan-editor">
+      <form id="plan-form" method="dialog">
+        <h2 class="dialog-title" id="plan-title">Plan</h2>
+
+        <div class="grid assignment-grid">
+          <div>
+            <label for="plan-kind">Kind</label>
+            <select id="plan-kind" name="kind">
+              <option value="shift">💼 Shift</option>
+              <option value="appointment">📌 Appointment</option>
+              <option value="birthday">🎂 Birthday</option>
+              <option value="hangout">🎉 Hangout</option>
+              <option value="other">• Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="plan-title-input">Title</label>
+            <input id="plan-title-input" name="title" autocomplete="off" placeholder="e.g. Dentist" />
+          </div>
+        </div>
+
+        <div id="plan-shift-fields">
+          <label for="plan-shift-type">Shift type</label>
+          <select id="plan-shift-type" name="shiftType">
+            <option value="regular">Regular: shift hours and draw hours</option>
+            <option value="meeting">Meeting: shift hours only</option>
+            <option value="oncall">On-call: free unless you're called in</option>
+          </select>
+        </div>
+
+        <label class="check-inline" id="plan-all-day-row"><input type="checkbox" name="allDay" /> All day</label>
+
+        <div class="grid assignment-grid">
+          <div>
+            <label for="plan-start-date">Starts</label>
+            <input id="plan-start-date" name="startDate" type="date" />
+          </div>
+          <div id="plan-start-time-field">
+            <label for="plan-start-time">at</label>
+            <input id="plan-start-time" name="startTime" type="time" />
+          </div>
+          <div>
+            <label for="plan-end-date">Ends (optional)</label>
+            <input id="plan-end-date" name="endDate" type="date" />
+          </div>
+          <div id="plan-end-time-field">
+            <label for="plan-end-time">at</label>
+            <input id="plan-end-time" name="endTime" type="time" />
+          </div>
+        </div>
+        <p class="hint">Leave the end date empty and it's worked out: the next day if it ends earlier than it starts (a night shift).</p>
+
+        <div id="plan-draw-fields">
+          <div class="grid assignment-grid">
+            <div>
+              <label for="plan-draw-start">Draw from</label>
+              <input id="plan-draw-start" name="drawStart" type="time" />
+            </div>
+            <div>
+              <label for="plan-draw-end">Draw until</label>
+              <input id="plan-draw-end" name="drawEnd" type="time" />
+            </div>
+          </div>
+          <p class="hint draw-time" id="plan-draw-time"></p>
+        </div>
+
+        <label for="plan-repeats">Repeats</label>
+        <select id="plan-repeats" name="repeats">
+          <option value="never">Never</option>
+          <option value="weekly">Every week</option>
+          <option value="yearly">Every year</option>
+        </select>
+
+        <label for="plan-reminder-mode">Remind me</label>
+        <select id="plan-reminder-mode" name="reminderMode">
+          <option value="default" id="plan-reminder-default">Default for this kind</option>
+          <option value="custom">Choose…</option>
+          <option value="none">No reminders</option>
+        </select>
+        <div class="reminder-choices" id="plan-reminder-choices">
+          <label class="check-inline"><input type="checkbox" name="reminder" value="week-before" /> A week before</label>
+          <label class="check-inline"><input type="checkbox" name="reminder" value="day-before" /> Day before</label>
+          <label class="check-inline"><input type="checkbox" name="reminder" value="morning-of" /> Morning of</label>
+          <label class="check-inline"><input type="checkbox" name="reminder" value="2h-before" /> 2 hours before</label>
+        </div>
+        <p class="hint">She writes reminders herself, in her voice. A reminder that would land during work moves to before it.</p>
+
+        <label class="check-inline"><input type="checkbox" name="checked" /> Confirmed</label>
+
+        <label for="plan-notes">Notes</label>
+        <textarea id="plan-notes" name="notes" rows="2"></textarea>
+
+        <p class="form-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="button" class="button button-danger" id="plan-delete">Delete</button>
+          <span class="spacer"></span>
+          <button type="button" class="button" data-close>Cancel</button>
           <button type="submit" class="button button-primary">Save</button>
         </div>
       </form>

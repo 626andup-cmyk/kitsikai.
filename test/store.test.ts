@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { SCHEMA_VERSION } from "../src/db.ts";
+import { MIGRATIONS, openDatabase, SCHEMA_VERSION } from "../src/db.ts";
 import { channelName, defaultSettings, Store, validateChannelUpdate, validateSettings } from "../src/store.ts";
 import { tempDir } from "./helpers.ts";
 
@@ -27,12 +27,12 @@ describe("a new database", () => {
     const db = new Database(join(dir.path, "kitsikai.db"));
     expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
     db.close();
-    expect(store.listChannels().map((c) => c.name)).toEqual(["general"]);
+    expect(store.listChannels().map((c) => c.name)).toEqual(["general", "planner"]);
 
     // Opening it again doesn't seed again.
     store.close();
     store = new Store(dir.path);
-    expect(store.listChannels()).toHaveLength(1);
+    expect(store.listChannels()).toHaveLength(2);
     expect(store.profiles.list()).toHaveLength(1);
   });
 
@@ -42,6 +42,31 @@ describe("a new database", () => {
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
     db.close();
     expect(() => new Store(dir.path)).toThrow(/newer version of Kitsikai/);
+    store = new Store(":memory:");
+  });
+});
+
+describe("upgrading", () => {
+  test("a stage 2 database gets a planner channel at the bottom of its list", () => {
+    store.close();
+    // Build a database as stage 2 left it: migrations 1 and 2 only.
+    const path = join(dir.path, "old.db");
+    const db = new Database(path, { create: true, strict: true });
+    db.exec(MIGRATIONS[0] as string);
+    db.exec(MIGRATIONS[1] as string);
+    db.exec("PRAGMA user_version = 2");
+    db.query("INSERT INTO channels (id, name, kind, position, created_at) VALUES ('c1', 'general', 'text', 0, 'x')").run();
+    db.query("INSERT INTO channels (id, name, kind, position, created_at) VALUES ('c2', 'gaming', 'text', 1, 'x')").run();
+    db.close();
+
+    const upgraded = openDatabase(path);
+    const channels = upgraded.query("SELECT name, kind, position FROM channels ORDER BY position").all();
+    expect(channels).toEqual([
+      { name: "general", kind: "text", position: 0 },
+      { name: "gaming", kind: "text", position: 1 },
+      { name: "planner", kind: "planner", position: 2 },
+    ]);
+    upgraded.close();
     store = new Store(":memory:");
   });
 });

@@ -22,7 +22,7 @@ export type Author = "user" | "kitsikai";
  * - `"planner"` (stage 3) and `"trackers"` (stage 5): opening these shows
  *   their screen instead of a chat.
  */
-export type ChannelKind = "text";
+export type ChannelKind = "text" | "planner";
 
 /** A channel: one conversation with her. */
 export interface Channel {
@@ -183,4 +183,98 @@ export interface Roulette {
   entries: { profileId: string; weight: number }[];
   position: number;
   createdAt: string;
+}
+
+// ------------------------------------------------------------ stage 3
+
+/** What kind of plan: shifts and events are the same record with different kinds. */
+export type PlanKind = "shift" | "appointment" | "birthday" | "hangout" | "other";
+
+/**
+ * What kind of shift:
+ *
+ * - `"regular"`: shift hours and draw hours; counts as busy.
+ * - `"meeting"`: shift hours only; counts as busy.
+ * - `"oncall"`: the on-call window; free unless you get called in (stage 8).
+ */
+export type ShiftType = "regular" | "meeting" | "oncall";
+
+/** How a plan repeats. */
+export type Repeats = "never" | "weekly" | "yearly";
+
+/** A reminder a plan can have, relative to when it starts. */
+export type ReminderId = "week-before" | "day-before" | "morning-of" | "2h-before";
+
+/** Where a plan came from. */
+export type PlanSource = "manual" | "screenshot" | "chat";
+
+/** A plan: anything planned, on a day, maybe at a time. */
+export interface Plan {
+  id: string;
+  kind: PlanKind;
+  /** "Dentist", "Mia's birthday", "Work". */
+  title: string;
+  startDate: string;
+  /** `null` for an all-day plan. */
+  startTime: string | null;
+  /** Optional, with its own date, so overnight shifts (10pm–6am) work. */
+  endDate: string | null;
+  endTime: string | null;
+  repeats: Repeats;
+  /** This plan's own reminders, or `null` to use its kind's defaults. */
+  reminders: ReminderId[] | null;
+  /** Whether you've confirmed it. */
+  checked: boolean;
+  /** Shifts only. */
+  shiftType: ShiftType | null;
+  /** Regular shifts only: the draw hours. Draw time is always calculated from these, never stored. */
+  drawStart: string | null;
+  drawEnd: string | null;
+  notes: string;
+  source: PlanSource;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** When one of a plan's reminders goes off, for one occurrence. */
+export interface ReminderTime {
+  id: ReminderId;
+  /** "Day before", "2 hours before"... */
+  label: string;
+  date: string;
+  time: string;
+  /** Moved earlier because it would have landed during work. */
+  dodged: boolean;
+}
+
+/**
+ * One occurrence of a plan on the calendar: a plan that repeats weekly has
+ * one per week. Everything calculated (shift hours, draw time, reminder
+ * times) is worked out here, every time, so it can never disagree with the
+ * plan itself.
+ */
+export interface Occurrence {
+  /** `planId:date`: unique for each occurrence. */
+  key: string;
+  plan: Plan;
+  /** This occurrence's start date (for a repeating plan, not the plan's first one). */
+  date: string;
+  startTime: string | null;
+  endDate: string | null;
+  endTime: string | null;
+  /** Shifts: the shift hours, in minutes. */
+  shiftMinutes: number | null;
+  /** Regular shifts: the draw time, in minutes, calculated from the draw hours. `null` without draw hours. */
+  drawMinutes: number | null;
+  /** Whether it counts as busy: regular shifts and meetings (and on-call, when called in). */
+  busy: boolean;
+  reminders: ReminderTime[];
+}
+
+/** A stretch of work: shifts that run into each other count as one. */
+export interface WorkBlock {
+  start: Date;
+  end: Date;
+  /** The occurrences it's made of. */
+  keys: string[];
 }

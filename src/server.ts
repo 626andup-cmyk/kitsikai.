@@ -32,6 +32,14 @@
  *   POST   /api/channels/:id/cancel       Stop her turn in progress (the Stop button)
  *   GET    /api/channels/:id/prompt       The exact prompt stack the next turn would send
  *
+ *   GET    /api/plans?from=&to=           Every plan occurrence between two dates, with shift hours, draw
+ *                                         time and reminder times worked out (see src/planner.ts)
+ *   GET    /api/planner/week?date=        The weekly list for the week (Monday to Sunday) a date is in
+ *   POST   /api/plans                     Make a plan
+ *   GET    /api/plans/:id                 One plan
+ *   PATCH  /api/plans/:id                 Change a plan
+ *   DELETE /api/plans/:id                 Delete a plan
+ *
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
  *
@@ -64,6 +72,8 @@ import { Events } from "./events.ts";
 import { BusyError, Kitsikai, pickProfile, promptForChannel, testToolCalling, type TurnResult } from "./kitsikai.ts";
 import { ApiError, CancelledError, listModels, type ApiOptions } from "./nanogpt.ts";
 import { Replies } from "./replies.ts";
+import { daysBetween, isDate, mondayOf } from "./dates.ts";
+import { DEFAULT_REMINDERS, REMINDER_LABELS } from "./planner.ts";
 import {
   NotFoundError,
   Store,
@@ -232,6 +242,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
           roulettes: store.profiles.listRoulettes(),
           busyChannels: kitsikai.busyChannels(),
           appVersion: version,
+          // For the planner's plan editor.
+          planner: { defaultReminders: DEFAULT_REMINDERS, reminderLabels: REMINDER_LABELS },
         }),
     },
     {
@@ -391,6 +403,62 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         const profileId = new URL(request.url).searchParams.get("profile");
         const profile = profileId ? store.profiles.get(profileId) : pickProfile(store, store.getChannel(id!), 0);
         return json({ messages: promptForChannel(store, id!, { profile, now: now() }), profile });
+      },
+    },
+
+    // ----------------------------------------------------------- planner
+    {
+      method: "GET",
+      pattern: "/api/plans",
+      handler: (request) => {
+        const params = new URL(request.url).searchParams;
+        const from = params.get("from");
+        const to = params.get("to");
+        if (!isDate(from) || !isDate(to)) throw new HttpError(400, '"from" and "to" must be dates like 2026-09-28.');
+        const days = daysBetween(from, to);
+        if (days < 0 || days > 400) throw new HttpError(400, '"to" must be on or after "from", and within 400 days of it.');
+        return json({ occurrences: store.plans.occurrences(from, to) });
+      },
+    },
+    {
+      method: "GET",
+      pattern: "/api/planner/week",
+      handler: (request) => {
+        const date = new URL(request.url).searchParams.get("date");
+        if (!isDate(date)) throw new HttpError(400, '"date" must be a date like 2026-09-28.');
+        return json({ week: store.plans.week(mondayOf(date)) });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/plans",
+      handler: async (request) => {
+        const plan = store.plans.create(await readObject(request));
+        events.publish({ type: "plans" });
+        return json({ plan });
+      },
+    },
+    {
+      method: "GET",
+      pattern: "/api/plans/:id",
+      handler: (_request, { id }) => json({ plan: store.plans.get(id!) }),
+    },
+    {
+      method: "PATCH",
+      pattern: "/api/plans/:id",
+      handler: async (request, { id }) => {
+        const plan = store.plans.update(id!, await readObject(request));
+        events.publish({ type: "plans" });
+        return json({ plan });
+      },
+    },
+    {
+      method: "DELETE",
+      pattern: "/api/plans/:id",
+      handler: (_request, { id }) => {
+        store.plans.delete(id!);
+        events.publish({ type: "plans" });
+        return json({ ok: true });
       },
     },
 

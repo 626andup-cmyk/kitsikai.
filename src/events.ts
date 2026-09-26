@@ -37,7 +37,9 @@ export type ServerEvent =
   /** A reply she started on her own (after the wait) failed. */
   | { type: "turn-error"; channelId: string; error: string }
   /** The channel list changed. */
-  | { type: "channels"; channels: Channel[] };
+  | { type: "channels"; channels: Channel[] }
+  /** Plans changed (the planner reloads what it shows). */
+  | { type: "plans" };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

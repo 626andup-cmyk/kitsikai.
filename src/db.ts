@@ -378,6 +378,13 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX proactive_log_by_time ON proactive_log (created_at);
   `,
+
+  // ---------------------------------------------------------------- 8
+  // Linked shifts: 1 if you stay away overnight (a hotel night) after this
+  // shift, before the next one. Set by hand in the planner.
+  `
+  ALTER TABLE plans ADD COLUMN overnight INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /**

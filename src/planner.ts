@@ -34,7 +34,7 @@ import {
   type LocalDate,
 } from "./dates.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
-import type { Occurrence, Plan, PlanKind, PlanSource, ReminderId, ReminderTime, Repeats, ShiftType, WorkBlock } from "./types.ts";
+import type { Occurrence, OvernightStay, Plan, PlanKind, PlanSource, ReminderId, ReminderTime, Repeats, ShiftType, WorkBlock } from "./types.ts";
 
 // --------------------------------------------------------------- choices
 
@@ -145,6 +145,7 @@ export function validatePlan(input: Record<string, unknown>): PlanInput {
   }
 
   if (input.checked !== undefined && typeof input.checked !== "boolean") throw new ValidationError("checked must be true or false");
+  if (input.overnight !== undefined && typeof input.overnight !== "boolean") throw new ValidationError("overnight must be true or false");
   if (input.notes !== undefined && (typeof input.notes !== "string" || input.notes.length > 2000)) {
     throw new ValidationError("notes must be text of 2000 characters at most");
   }
@@ -165,6 +166,8 @@ export function validatePlan(input: Record<string, unknown>): PlanInput {
     shiftType,
     drawStart,
     drawEnd,
+    // Only shifts link to the next one.
+    overnight: isShift && input.overnight === true,
     notes: typeof input.notes === "string" ? input.notes : "",
     source: choice(input.source ?? "manual", PLAN_SOURCES, "source"),
   };
@@ -319,6 +322,24 @@ export function reminderTimes(ids: ReminderId[], t: Timing, blocks: WorkBlock[],
   });
 }
 
+/** A linked shift starts within this many hours after an "overnight" shift ends. */
+export const LINK_HOURS = 48;
+
+/**
+ * The hotel night after an "overnight" shift: until the next shift that
+ * starts within two days of it ending (the one it's linked to). Two or more
+ * linked shifts are a chain: each but the last is marked overnight.
+ */
+export function overnightStay(key: string, t: Timing, all: { plan: Plan; t: Timing; key: string }[]): OvernightStay {
+  const end = momentsOf(t).end;
+  const next = all
+    .filter((o) => o.plan.kind === "shift" && o.key !== key)
+    .map((o) => ({ key: o.key, t: o.t, start: momentsOf(o.t).start }))
+    .filter((o) => o.start >= end && o.start.getTime() - end.getTime() <= LINK_HOURS * 3600_000)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
+  return next ? { nextKey: next.key, nextDate: next.t.date, nextTime: next.t.startTime } : { nextKey: null, nextDate: null, nextTime: null };
+}
+
 /** A day of the weekly list. */
 export interface WeekDay {
   date: LocalDate;
@@ -386,6 +407,7 @@ interface PlanRow {
   shift_type: ShiftType | null;
   draw_start: string | null;
   draw_end: string | null;
+  overnight: number;
   notes: string;
   source: PlanSource;
   created_at: string;
@@ -407,6 +429,7 @@ function toPlan(row: PlanRow): Plan {
     shiftType: row.shift_type,
     drawStart: row.draw_start,
     drawEnd: row.draw_end,
+    overnight: row.overnight === 1,
     notes: row.notes,
     source: row.source,
     createdAt: row.created_at,
@@ -442,9 +465,9 @@ export class Plans {
     this.db
       .query(
         `INSERT INTO plans (id, kind, title, start_date, start_time, end_date, end_time, repeats, reminders, checked,
-                            shift_type, draw_start, draw_end, notes, source, created_at, updated_at)
+                            shift_type, draw_start, draw_end, overnight, notes, source, created_at, updated_at)
          VALUES ($id, $kind, $title, $startDate, $startTime, $endDate, $endTime, $repeats, $reminders, $checked,
-                 $shiftType, $drawStart, $drawEnd, $notes, $source, $now, $now)`,
+                 $shiftType, $drawStart, $drawEnd, $overnight, $notes, $source, $now, $now)`,
       )
       .run({ id, now, ...row(clean) });
     return this.get(id);
@@ -459,7 +482,7 @@ export class Plans {
         `UPDATE plans SET kind = $kind, title = $title, start_date = $startDate, start_time = $startTime,
                 end_date = $endDate, end_time = $endTime, repeats = $repeats, reminders = $reminders,
                 checked = $checked, shift_type = $shiftType, draw_start = $drawStart, draw_end = $drawEnd,
-                notes = $notes, source = $source, updated_at = $now
+                overnight = $overnight, notes = $notes, source = $source, updated_at = $now
           WHERE id = $id`,
       )
       .run({ id, now: new Date().toISOString(), ...row(clean) });
@@ -505,6 +528,7 @@ export class Plans {
           drawMinutes: facts.drawMinutes,
           busy: countsAsBusy(plan, key, calledIn),
           reminders: reminderTimes(plan.reminders ?? DEFAULT_REMINDERS[plan.kind], t, blocks, key),
+          stay: plan.overnight ? overnightStay(key, t, expanded) : null,
         };
       })
       .sort((a, b) => (a.date + (a.startTime ?? "")).localeCompare(b.date + (b.startTime ?? "")));
@@ -535,5 +559,6 @@ function row(clean: PlanInput) {
     ...clean,
     reminders: clean.reminders === null ? null : JSON.stringify(clean.reminders),
     checked: clean.checked ? 1 : 0,
+    overnight: clean.overnight ? 1 : 0,
   };
 }

@@ -19,7 +19,9 @@ import {
   toMoment,
   weekday,
 } from "../src/dates.ts";
+import { describeOccurrence, workStatus } from "../src/binder.ts";
 import { occurrencesOf, reminderTimes, validatePlan, workBlocks } from "../src/planner.ts";
+import { checkRows, rowsFromRequest, saveRows } from "../src/screenshot.ts";
 import { createApp, type App } from "../src/server.ts";
 import { Store } from "../src/store.ts";
 import type { Plan } from "../src/types.ts";
@@ -342,6 +344,89 @@ describe("plans in the database", () => {
     expect(week.days[2]!.shiftMinutes).toBe(480);
     expect(week.days[6]!.occurrences[0]!.plan.title).toBe("Mia");
     expect(week.totals).toEqual({ shiftMinutes: 510 + 480 + 60, drawMinutes: 300 + 240, onCallMinutes: 720 });
+  });
+});
+
+describe("linked shifts: a hotel night between shifts", () => {
+  let dir: ReturnType<typeof tempDir>;
+  let store: Store;
+  const shift = (startDate: string, startTime: string, endTime: string, extra: Record<string, unknown> = {}) =>
+    store.plans.create({ kind: "shift", title: "Work", startDate, startTime, endTime, drawStart: null, drawEnd: null, checked: true, ...extra });
+
+  beforeEach(() => {
+    dir = tempDir();
+    store = new Store(dir.path);
+  });
+
+  afterEach(() => {
+    store.close();
+    dir.cleanup();
+  });
+
+  test("only shifts can be overnight, and it's saved", () => {
+    expect(validatePlan({ kind: "appointment", title: "Dentist", startDate: "2026-09-28", startTime: "15:00", overnight: true }).overnight).toBe(false);
+    expect(() => validatePlan({ kind: "shift", title: "Work", startDate: "2026-09-28", startTime: "09:00", endTime: "17:00", overnight: "yes" })).toThrow(
+      "overnight must be true or false",
+    );
+    const monday = shift("2026-09-28", "09:00", "17:00", { overnight: true });
+    expect(store.plans.get(monday.id).overnight).toBe(true);
+    expect(store.plans.update(monday.id, { overnight: false }).overnight).toBe(false);
+    expect(shift("2026-09-29", "09:00", "17:00").overnight).toBe(false);
+  });
+
+  test("links to the next shift, and a chain of them is a trip", () => {
+    const monday = shift("2026-09-28", "06:00", "14:00", { overnight: true });
+    const tuesday = shift("2026-09-29", "07:00", "15:00", { overnight: true });
+    const wednesday = shift("2026-09-30", "06:00", "12:00");
+    const [mon, tue, wed] = store.plans.occurrences("2026-09-28", "2026-09-30");
+    expect(mon!.stay).toEqual({ nextKey: `${tuesday.id}:2026-09-29`, nextDate: "2026-09-29", nextTime: "07:00" });
+    expect(tue!.stay).toEqual({ nextKey: `${wednesday.id}:2026-09-30`, nextDate: "2026-09-30", nextTime: "06:00" });
+    expect(wed!.stay).toBeNull();
+    expect(mon!.plan.id).toBe(monday.id);
+  });
+
+  test("with no shift in the next two days, it has nothing to link to", () => {
+    shift("2026-09-28", "06:00", "14:00", { overnight: true });
+    shift("2026-09-30", "15:00", "20:00"); // 49 hours later
+    const [mon] = store.plans.occurrences("2026-09-28", "2026-09-28");
+    expect(mon!.stay).toEqual({ nextKey: null, nextDate: null, nextTime: null });
+  });
+
+  test("a weekly overnight shift links to that week's next shift", () => {
+    shift("2026-09-28", "06:00", "14:00", { overnight: true, repeats: "weekly" });
+    shift("2026-09-29", "07:00", "15:00", { repeats: "weekly" });
+    const mondays = store.plans.occurrences("2026-10-05", "2026-10-12").filter((o) => o.stay);
+    expect(mondays.map((o) => o.stay!.nextDate)).toEqual(["2026-10-06", "2026-10-13"]);
+  });
+
+  test("she's told: the hotel night on the shift, and that they're away between shifts", () => {
+    shift("2026-09-28", "06:00", "14:00", { overnight: true });
+    shift("2026-09-29", "07:00", "15:00");
+    const [mon] = store.plans.occurrences("2026-09-28", "2026-09-28");
+    expect(describeOccurrence(mon!)).toBe("Work (shift) 6:00a–2:00p, 8h, no draw hours, then a hotel night: staying away until the next shift, Tue, Sep 29 at 7:00a");
+    // At work, then away (not at work, and not home), then at work again.
+    expect(workStatus(store, new Date(2026, 8, 28, 13, 0))).toBe("They're at work right now, until 2:00 PM.");
+    expect(workStatus(store, new Date(2026, 8, 28, 20, 0))).toBe(
+      "They're away overnight, staying at a hotel between shifts: not at work, and not home. Their next shift starts at 7:00 AM tomorrow.",
+    );
+    expect(workStatus(store, new Date(2026, 8, 29, 6, 0))).toContain("Their next shift starts at 7:00 AM.");
+    expect(workStatus(store, new Date(2026, 8, 29, 8, 0))).toBe("They're at work right now, until 3:00 PM.");
+    expect(workStatus(store, new Date(2026, 8, 29, 16, 0))).toBeNull();
+  });
+
+  test("the screenshot review: ticked by hand, warned about when there's nothing to link to, and saved", () => {
+    const rows = rowsFromRequest([
+      { date: "2026-09-28", shiftType: "regular", startTime: "06:00", endTime: "14:00", drawStart: "07:00", drawEnd: "11:00", overnight: true },
+      { date: "2026-09-29", shiftType: "regular", startTime: "07:00", endTime: "15:00", drawStart: "08:00", drawEnd: "12:00", overnight: true },
+      { date: "2026-10-05", shiftType: "regular", startTime: "07:00", endTime: "15:00", drawStart: "08:00", drawEnd: "12:00", overnight: "yes" },
+    ]);
+    expect(rows.map((r) => r.overnight)).toEqual([true, true, false]);
+    const checked = checkRows(rows, [], new Date(2026, 8, 26, 12, 0));
+    const linkWarning = "Overnight after this shift, but there's no shift in the next two days to link it to.";
+    expect(checked[0]!.warnings).not.toContain(linkWarning);
+    expect(checked[1]!.warnings).toContain(linkWarning);
+    const saved = saveRows(store, rows, new Date(2026, 8, 26, 12, 0));
+    expect(saved.map((p) => p.overnight)).toEqual([true, true, false]);
   });
 });
 

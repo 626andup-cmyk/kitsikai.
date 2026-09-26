@@ -68,6 +68,19 @@ function sundayOfDate(date) {
   return shiftDate(date, -new Date(y, m - 1, d, 12).getDay());
 }
 
+/**
+ * A linked shift's hotel night, in words: "🏨 Hotel night, then Tue 9/29
+ * 6:00a", or a warning when there's no shift to link to. `null` if the shift
+ * isn't marked overnight.
+ */
+function stayText(occurrence) {
+  const stay = occurrence.stay;
+  if (!stay) return null;
+  return stay.nextDate
+    ? `🏨 Hotel night, then ${dayLabel(stay.nextDate)} ${clock(stay.nextTime)}`
+    : "🏨 Overnight, but there's no shift in the next two days to link to";
+}
+
 /** The first of the month a date is in. */
 function firstOfMonth(date) {
   return `${date.slice(0, 7)}-01`;
@@ -226,6 +239,11 @@ function renderCalendar() {
       chip.dataset.shiftType = shift.plan.shiftType;
       if (!shift.plan.checked) chip.classList.add("unchecked");
       chip.textContent = `${clock(shift.startTime)}–${clock(shift.endTime)}`;
+      if (shift.stay) {
+        chip.classList.add("overnight");
+        chip.textContent += " 🏨";
+        chip.title = stayText(shift);
+      }
       cell.append(chip);
     }
     for (const other of onDay.filter((o) => o.plan.kind !== "shift")) {
@@ -310,6 +328,13 @@ function planCard(occurrence) {
     details.className = "plan-card-details";
     details.textContent = facts.join(" · ");
     card.append(details);
+  }
+  if (occurrence.stay) {
+    const stay = document.createElement("div");
+    stay.className = "plan-card-details plan-card-stay";
+    if (!occurrence.stay.nextKey) stay.classList.add("unlinked");
+    stay.textContent = stayText(occurrence);
+    card.append(stay);
   }
   if (occurrence.drawMinutes !== null) {
     const draw = document.createElement("div");
@@ -396,6 +421,13 @@ function shiftRow(occurrence) {
     cell.textContent = text;
     row.append(cell);
   }
+  if (occurrence.stay) {
+    const stay = document.createElement("span");
+    stay.className = "shift-row-stay";
+    if (!occurrence.stay.nextKey) stay.classList.add("unlinked");
+    stay.textContent = stayText(occurrence);
+    row.append(stay);
+  }
   row.addEventListener("click", () => openPlan(plan));
   return row;
 }
@@ -458,6 +490,7 @@ function openPlan(plan, date = planner.selectedDate ?? todayDate()) {
   f.endTime.value = plan?.endTime ?? "";
   f.drawStart.value = plan?.drawStart ?? "";
   f.drawEnd.value = plan?.drawEnd ?? "";
+  f.overnight.checked = plan?.overnight ?? false;
   f.repeats.value = plan?.repeats ?? "never";
   f.checked.checked = plan ? plan.checked : true;
   f.notes.value = plan?.notes ?? "";
@@ -523,6 +556,7 @@ async function savePlan(event) {
     shiftType: shift ? f.shiftType.value : null,
     drawStart: f.drawStart.value || null,
     drawEnd: f.drawEnd.value || null,
+    overnight: shift && f.overnight.checked,
   };
   try {
     if (planner.editing) await api("PATCH", `/api/plans/${encodeURIComponent(planner.editing.id)}`, body);

@@ -132,6 +132,10 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.week-view`, `.week-list`, `.week-day`, `.week-day-title`, `.week-day-empty`, `.week-day-total`, `.week-totals` | The weekly list. A day has `data-date`, and `.today`. |
 | `.shift-row`, `.shift-row-type`, `.shift-row-hours`, `.shift-row-length`, `.shift-row-draw`, `.shift-row-draw-time`, `.week-plan` | Rows in the weekly list |
 | `.plan-editor`, `.reminder-choices` | The plan editor |
+| `.import-dialog`, `.import-layout`, `.import-screenshot`, `.import-review`, `.import-status`, `.import-summary` | Screenshot import: the screenshot beside the review list |
+| `.review-list`, `.review-row`, `.review-day`, `.review-weekday`, `.review-type`, `.review-hours`, `.review-draw`, `.review-draw-time`, `.review-remove` | The review list. A row gets `.has-warnings` or `.has-error`; `.review-draw` gets `.not-regular` for meetings and on-call. |
+| `.time-pair`, `.time-pair-label` | Two time boxes ("from" and "to") with their label |
+| `.review-notes`, `.review-warning`, `.review-error` | A row's ⚠️ warnings and ✗ error |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

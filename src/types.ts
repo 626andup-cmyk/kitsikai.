@@ -92,6 +92,11 @@ export interface Settings {
    * A channel can override it (`Channel.assignment`).
    */
   chatAssignment: string;
+  /**
+   * Which connection profile reads schedule screenshots (stage 4). It needs
+   * a vision model, one that can read images. `""` for the first profile.
+   */
+  screenshotAssignment: string;
   /** How many of a channel's most recent messages she sees. */
   historyLimit: number;
   /**
@@ -135,7 +140,16 @@ export type ChatMessage =
  * A message as sent to the API, which also covers a reply that only called
  * tools: its content is `null` (some providers reject an empty string there).
  */
-export type ApiMessage = ChatMessage | { role: "assistant"; content: string | null; tool_calls: ApiToolCall[] };
+export type ApiMessage =
+  | ChatMessage
+  | { role: "assistant"; content: string | null; tool_calls: ApiToolCall[] }
+  | { role: "user"; content: ContentPart[] };
+
+/**
+ * One part of a message that has a picture in it (stage 4: screenshots).
+ * Pictures are sent as `data:` URLs: the image's bytes, as base64 text.
+ */
+export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
 /** A tool call as the API writes it inside an assistant message. */
 export interface ApiToolCall {
@@ -277,4 +291,32 @@ export interface WorkBlock {
   end: Date;
   /** The occurrences it's made of. */
   keys: string[];
+}
+
+// ------------------------------------------------------------ stage 4
+
+/** One shift as read from a schedule screenshot, before it's saved. */
+export interface ScreenshotRow {
+  /** `null` if it couldn't be read. */
+  date: string | null;
+  shiftType: ShiftType;
+  startTime: string | null;
+  endTime: string | null;
+  drawStart: string | null;
+  drawEnd: string | null;
+  /** The weekday as written on the screenshot ("Mon"), to spot misread dates. */
+  weekdayRead: string | null;
+}
+
+/** A row of the review list: what was read, what's calculated from it, and what looks wrong. */
+export interface CheckedRow extends ScreenshotRow {
+  /** Worked out: the next day for an overnight shift. */
+  endDate: string | null;
+  shiftMinutes: number | null;
+  /** Calculated from the draw hours, never read. */
+  drawMinutes: number | null;
+  /** ⚠️ things worth a second look. They never stop you saving. */
+  warnings: string[];
+  /** Something that does: a missing date or time. */
+  error: string | null;
 }

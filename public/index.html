@@ -50,6 +50,8 @@
     <script src="/app.js" defer></script>
     <!-- The 📅 planner channel's screen (stage 3). -->
     <script src="/planner.js" defer></script>
+    <!-- Importing shifts from a schedule screenshot (stage 4). -->
+    <script src="/screenshot.js" defer></script>
   </head>
   <body>
     <!-- Reusable icons, drawn once and referenced with <use href="#icon-...">. -->
@@ -184,6 +186,10 @@
             </div>
             <span class="spacer"></span>
             <button type="button" class="button" id="planner-today">Today</button>
+            <button type="button" class="button" id="planner-import" title="Read your shifts from a screenshot of your schedule">
+              Import screenshot
+            </button>
+            <input type="file" id="import-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
             <button type="button" class="button button-primary" id="planner-add">Add plan</button>
           </header>
 
@@ -263,6 +269,13 @@
         <p class="hint">
           A channel can override this in its own settings.
           <button type="button" class="link-button inline-link" id="open-models">Profiles and roulettes…</button>
+        </p>
+
+        <label for="setting-screenshot-assignment">Screenshots are read by</label>
+        <select id="setting-screenshot-assignment" name="screenshotAssignment"></select>
+        <p class="hint">
+          The profile that reads your schedule screenshots in the planner. It needs a vision model (one that can
+          read images), like Gemini Flash.
         </p>
 
         <label for="setting-history">History</label>
@@ -727,6 +740,38 @@
           <button type="submit" class="button button-primary">Save</button>
         </div>
       </form>
+    </dialog>
+
+    <!--
+      Importing a schedule screenshot (stage 4): the screenshot beside the
+      shifts read from it, every field editable. Filled in by screenshot.js.
+    -->
+    <dialog id="import-dialog" class="dialog surface import-dialog">
+      <h2 class="dialog-title">Import a schedule screenshot</h2>
+      <div class="import-layout">
+        <figure class="import-screenshot">
+          <img id="import-image" alt="Your schedule screenshot" />
+        </figure>
+        <div class="import-review">
+          <p class="status import-status" id="import-status" hidden>
+            <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span id="import-status-text"></span>
+          </p>
+          <div class="review-list" id="review-list"></div>
+          <button type="button" class="button" id="import-add-row">Add a shift</button>
+          <p class="hint">
+            Tap any field to fix it. ⚠️ warnings are things worth a second look; they never stop you saving. Draw time
+            is calculated from the draw hours.
+          </p>
+        </div>
+      </div>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="hint import-summary" id="import-summary"></span>
+        <span class="spacer"></span>
+        <button type="button" class="button" data-close>Cancel</button>
+        <button type="button" class="button button-primary" id="import-save">Looks good, save</button>
+      </div>
     </dialog>
 
     <!-- Shows the exact prompt stack her next turn would send. -->

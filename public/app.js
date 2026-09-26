@@ -1636,6 +1636,7 @@ function openSettings() {
   form.userName.value = s.userName;
   form.persona.value = s.persona;
   fillAssignmentSelect(form.chatAssignment, s.chatAssignment);
+  fillAssignmentSelect(form.screenshotAssignment, s.screenshotAssignment, null, true);
   form.historyLimit.value = s.historyLimit;
   form.replyDebounceSeconds.value = s.replyDebounceSeconds;
   form.typingBaseMs.value = s.typingBaseMs;
@@ -1655,6 +1656,7 @@ async function saveSettings(event) {
       userName: form.userName.value,
       persona: form.persona.value,
       chatAssignment: form.chatAssignment.value,
+      screenshotAssignment: form.screenshotAssignment.value,
       // Number boxes give text; the server wants numbers.
       historyLimit: Number(form.historyLimit.value),
       replyDebounceSeconds: Number(form.replyDebounceSeconds.value),
@@ -1755,6 +1757,7 @@ async function refreshProfiles() {
   if (els.settingsDialog.open) {
     const form = els.settingsForm.elements;
     fillAssignmentSelect(form.chatAssignment, form.chatAssignment.value);
+    fillAssignmentSelect(form.screenshotAssignment, form.screenshotAssignment.value, null, true);
   }
 }
 
@@ -1799,6 +1802,7 @@ function openModels() {
 function usesOf(value, index) {
   const jobs = [];
   if (state.settings.chatAssignment === value || (index === 0 && !state.settings.chatAssignment)) jobs.push("chat");
+  if (state.settings.screenshotAssignment === value || (index === 0 && !state.settings.screenshotAssignment)) jobs.push("screenshots");
   const channels = state.channels.filter((c) => c.assignment === value).map((c) => `#${c.name}`);
   return [...jobs, ...channels];
 }

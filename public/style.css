@@ -1766,3 +1766,199 @@ button:disabled {
   opacity: 0.5;
 }
 
+/* ==================================================== screenshot import */
+
+.import-dialog {
+  width: min(1100px, 100vw - 24px);
+}
+
+/* The screenshot beside the review list; stacked on phones. */
+.import-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.import-screenshot {
+  position: sticky;
+  top: 0;
+  margin: 0;
+}
+
+.import-screenshot img {
+  display: block;
+  width: 100%;
+  max-height: 75vh;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+}
+
+@media (max-width: 799px) {
+  .import-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .import-screenshot {
+    position: static;
+  }
+
+  .import-screenshot img {
+    max-height: 40vh;
+  }
+}
+
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+/*
+ * A shift, as a card:
+ *
+ *   [day]          [shift type]   [draw time]  [✕]
+ *   [shift hours]                 [draw hours]
+ *   ⚠️ warnings
+ */
+.review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "day type drawtime remove"
+    "hours hours draw draw"
+    "notes notes notes notes";
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+}
+
+.review-day {
+  grid-area: day;
+}
+
+.review-type {
+  grid-area: type;
+}
+
+.review-hours {
+  grid-area: hours;
+}
+
+.review-draw {
+  grid-area: draw;
+}
+
+.review-draw-time {
+  grid-area: drawtime;
+  font-size: 14px;
+}
+
+.review-remove {
+  grid-area: remove;
+}
+
+.review-row.has-warnings {
+  border-color: #c9a227;
+}
+
+.review-row.has-error {
+  border-color: var(--error-text);
+}
+
+.review-row input,
+.review-row select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border: var(--input-border);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.review-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-weekday {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.time-pair {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.time-pair input {
+  flex: 1 1 7.5em;
+}
+
+.time-pair-label {
+  flex: none;
+  width: 3.2em;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Only regular shifts have draw hours. */
+.review-draw.not-regular {
+  display: none;
+}
+
+.review-notes {
+  grid-area: notes;
+}
+
+.review-notes:empty {
+  display: none;
+}
+
+.review-warning,
+.review-error {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.review-warning {
+  color: var(--text);
+}
+
+.review-error {
+  color: var(--error-text);
+}
+
+.import-status {
+  margin: 0;
+}
+
+@media (max-width: 799px) {
+  .review-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "day type"
+      "hours hours"
+      "draw draw"
+      "drawtime remove"
+      "notes notes";
+  }
+
+  .review-remove {
+    justify-self: end;
+  }
+}
+

@@ -34,7 +34,7 @@
  */
 
 import { dayName } from "./binder.ts";
-import { dateOf, addDays, type LocalDate } from "./dates.ts";
+import { dateOf, addDays, toMoment, type LocalDate } from "./dates.ts";
 import type { Events } from "./events.ts";
 import { confidentChoice, percent, probabilityOf, tier, type Answers, type Decider, type Question } from "./jev.ts";
 import type { Memory } from "./memory.ts";
@@ -252,9 +252,58 @@ export class Scratchpad {
       questions.push({ id, kind: "choice", question: `Do their NEW messages answer what ${settings.name} asked in ${id}?`, options: ["yes", "no", "not answered"] });
     }
 
-    const answers = await decider.ask(state, questions, signal);
+    // Stage 8: on call right now? Then: called in, or done?
+    const onCall = this.onCall(now);
+    if (onCall) {
+      questions.push(
+        onCall.calledIn
+          ? { id: "done", kind: "yesno", question: "Do their NEW messages say they're done with work now (off, heading home)?" }
+          : { id: "calledIn", kind: "yesno", question: "Do their NEW messages say they got called in to work (they're on call)?" },
+      );
+    }
+    const onCallState = onCall
+      ? `\n\n${onCall.calledIn ? `They got called in to their on-call shift (until ${formatClock(onCall.end)}).` : `They're on call right now, until ${formatClock(onCall.end)}: free unless they get called in.`}`
+      : "";
+
+    const answers = await decider.ask(state + onCallState, questions, signal);
     if (signal.aborted) throw new CancelledError();
-    return this.apply({ answers, threshold, state, trackers, noteIds, askIds, fresh, channelId, now, today, signal, api });
+    const changes = await this.apply({ answers, threshold, state, trackers, noteIds, askIds, fresh, channelId, now, today, signal, api });
+    if (onCall) changes.push(...this.applyOnCall(onCall, answers, threshold, fresh.at(-1)!.id));
+    return changes;
+  }
+
+  /**
+   * The on-call shift you're in right now, if any (stage 8): on call means
+   * free unless you get called in; called in means at work until you say
+   * you're done or the window ends.
+   */
+  private onCall(now: Date): { key: string; end: Date; calledIn: boolean } | null {
+    const { store } = this.deps;
+    const today = dateOf(now);
+    const calledIn = store.reminders.calledIn();
+    const found = store.plans
+      .occurrences(addDays(today, -1), today, { calledIn })
+      .find((o) => o.plan.shiftType === "oncall" && o.startTime && o.endTime && o.endDate && toMoment(o.date, o.startTime) <= now && now < toMoment(o.endDate, o.endTime));
+    return found ? { key: found.key, end: toMoment(found.endDate!, found.endTime!), calledIn: calledIn.has(found.key) } : null;
+  }
+
+  /** You got called in, or you're done: from then on, she treats you as at work, or not. */
+  private applyOnCall(onCall: { key: string; end: Date; calledIn: boolean }, answers: Answers, threshold: number, messageId: string): MemoryLogEntry[] {
+    const { store, events, clock } = this.deps;
+    const now = clock();
+    const id = onCall.calledIn ? "done" : "calledIn";
+    if (tier(answers.get(id), threshold) !== "yes") return [];
+    const reason = `they said so (${percent(probabilityOf(answers.get(id), "yes"))} sure)`;
+    let entry: MemoryLogEntry;
+    if (onCall.calledIn) {
+      store.reminders.doneWith(onCall.key, now);
+      entry = this.memory.log({ runId: null, action: "done", text: "done with work (they'd been called in)", reason, messageId }, now);
+    } else {
+      store.reminders.callIn(onCall.key, now);
+      entry = this.memory.log({ runId: null, action: "noted", text: `called in to work (on call until ${formatClock(onCall.end)})`, reason, messageId }, now);
+    }
+    events?.publish({ type: "plans" });
+    return [entry];
   }
 
   /** Turn Jev's answers into notes (and commits, and tossed notes). */

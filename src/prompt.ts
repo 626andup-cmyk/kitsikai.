@@ -14,9 +14,10 @@
  *   3. Where you're texting    this channel, its topic, and the others
  *   4. Right now               the date and time on the phone
  *   5. Today and tomorrow      your plans for both days, and whether you're at work (stage 6)
- *   6. Your notes and pins     her scratchpad, pins, what she'll ask you about (stage 7)
- *   7. Tools                   how to use her lookups, if the profile can (stage 6)
- *   8. Model notes             the connection profile's notes on this model
+ *   6. Reminders due           reminders that have gone off and aren't sent yet (stage 8)
+ *   7. Your notes and pins     her scratchpad, pins, what she'll ask you about (stage 7)
+ *   8. Tools                   how to use her lookups, if the profile can (stage 6)
+ *   9. Model notes             the connection profile's notes on this model
  *
  * Later stages add more sections in between (channels, plans, her notes and
  * pins), but the shape stays the same.
@@ -90,8 +91,12 @@ export interface PromptInput {
   modelNotes?: string;
   /** Today's and tomorrow's plans, in words (see `todayAndTomorrow` in src/binder.ts). */
   todayAndTomorrow?: string;
+  /** Due reminders, in words (see `remindersForPrompt` in src/reminders.ts). */
+  reminders?: string | null;
   /** Her notes and pins, in words (see `memoryForPrompt` in src/memory.ts). */
   memory?: string;
+  /** Why she's texting first (stage 8): ends the stack instead of the usual note. */
+  note?: string;
   /** Whether she can use tools this turn (adds guidance on them). */
   tools?: boolean;
 }
@@ -109,6 +114,7 @@ export function buildPromptStack(input: PromptInput): ChatMessage[] {
     { title: "Where you're texting", content: describeChannels(channel, channels ?? [channel]) },
     { title: "Right now", content: describeNow(now) },
     { title: "Today and tomorrow", content: input.todayAndTomorrow ? `${PLANNER_NOTE}\n\n${input.todayAndTomorrow}` : null },
+    { title: "Reminders due", content: input.reminders },
     { title: "Your notes and pins", content: input.memory },
     { title: "Tools", content: tools ? TOOL_GUIDANCE : null },
     { title: "Model notes", content: modelNotes },
@@ -121,7 +127,12 @@ export function buildPromptStack(input: PromptInput): ChatMessage[] {
   // knows it's being asked to continue. This is what lets her take a turn
   // without you writing anything: the design's core rule.
   const last = history.at(-1);
-  if (!last || last.role !== "user") {
+  if (input.note) {
+    // She's texting first (stage 8): say why. Added to your last message if
+    // the chat ends on one, since some models reject two in a row.
+    if (last?.role === "user") last.content = `${last.content}\n\n${input.note}`;
+    else history.push({ role: "user", content: input.note });
+  } else if (!last || last.role !== "user") {
     history.push({ role: "user", content: last ? NUDGES.continue : NUDGES.opening });
   }
   return [system, ...history];

@@ -252,7 +252,7 @@ All through nanoGPT, using Aettica's connection profiles and roulettes. Each job
 
 Each stage adds one new concept, so there's only ever one new thing to learn.
 
-**Progress:** stages 1 to 7 are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md), [docs/stage-3.md](docs/stage-3.md), [docs/stage-4.md](docs/stage-4.md), [docs/stage-5.md](docs/stage-5.md), [docs/stage-6.md](docs/stage-6.md) and [docs/stage-7.md](docs/stage-7.md).
+**Progress:** all 8 stages are built. See [docs/stage-1.md](docs/stage-1.md), [docs/stage-2.md](docs/stage-2.md), [docs/stage-3.md](docs/stage-3.md), [docs/stage-4.md](docs/stage-4.md), [docs/stage-5.md](docs/stage-5.md), [docs/stage-6.md](docs/stage-6.md), [docs/stage-7.md](docs/stage-7.md) and [docs/stage-8.md](docs/stage-8.md), and [docs/install.md](docs/install.md) for putting it on the phone. The open questions below need a live test with a real key (see the README's live test notes).
 
 | Stage | Adds | New concept learned |
 | --- | --- | --- |
@@ -279,6 +279,6 @@ Parked until the core works.
 - [ ] Is Jev reachable? nanoGPT's model page showed "Unavailable" on Sep 26, 2026. Test a call before stage 7. (Stage 7 was built without being able to reach it: Settings → **Test Jev** answers this and shows the raw reply, the request format is isolated in `jevRequestBody`, and a fallback profile keeps her memory working meanwhile.)
 - [ ] Which vision model reads the schedule screenshots most reliably?
 - [ ] Which models reliably write the `<cht>` bubble format and handle tool calls? ("Test tools" and the tool log will answer the second.)
-- [ ] Good defaults for the snapshot interval (10 min?), processing interval (3 hours?), pin cap (10?), reply debounce (a few seconds?), and typing-delay numbers.
-- [ ] How far back does the interruption check look, and what counts as "a conversation in progress"?
+- [ ] Good defaults for the snapshot interval (10 min?), processing interval (3 hours?), pin cap (10?), reply debounce (a few seconds?), and typing-delay numbers. (All are settings now, with those defaults; living with them will tell.)
+- [x] How far back does the interruption check look, and what counts as "a conversation in progress"? Stage 8: the last 30 minutes, and Jev judges whether a text would interrupt; a channel with nothing in that time can't be interrupted. Unsure counts as interrupting. Easy to change (`INTERRUPT_MINUTES`) if it feels off in use.
 - [x] Should week totals count on-call hours? Stage 3 shows them separately, marked "not counted", so both numbers are there.

@@ -2370,3 +2370,35 @@ button:disabled {
 .memory-log-reason {
   color: var(--text-muted);
 }
+
+/* Texting first (stage 8), on the advanced page. */
+.proactive-check-result {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: var(--card-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  font-size: 14px;
+}
+
+.proactive-line[data-outcome="sent"] .memory-log-action,
+.reminder-record[data-status="sent"] .memory-log-action {
+  color: var(--memory-saved-color);
+}
+
+.proactive-line[data-outcome="queued"] .memory-log-action,
+.proactive-line[data-outcome="waiting"] .memory-log-action,
+.reminder-record[data-status="queued"] .memory-log-action {
+  color: var(--memory-ask-color);
+}
+
+.proactive-line[data-outcome="nothing"] .memory-log-action,
+.proactive-line[data-outcome="declined"] .memory-log-action,
+.reminder-record[data-status="skipped"] .memory-log-action {
+  color: var(--memory-tossed-color);
+}
+
+.proactive-line[data-outcome="error"] .memory-log-action {
+  color: var(--error-text);
+}

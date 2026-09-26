@@ -136,6 +136,18 @@ export interface Settings {
   pinCap: number;
   /** Show "Kitsikai's notes" in settings (the advanced page). Changes nothing about her. */
   showAdvanced: boolean;
+  /** Whether she can text first (stage 8). Off: she only ever replies. Reminders stop too. */
+  textFirst: boolean;
+  /** How often she checks whether to text first, in minutes (the snapshot check). */
+  snapshotMinutes: number;
+  /**
+   * The double-text cap: how many messages she may send first in a row
+   * without a reply. `"judge"` lets Jev decide each time. A number is a hard
+   * wall: once reached, Jev isn't even asked. Reminders ignore it.
+   */
+  doubleTextCap: DoubleTextCap;
+  /** Post her messages as phone notifications (Termux) while the app isn't open. */
+  notifications: boolean;
   /** The app theme's id (see `src/themes.ts`). "classic" is the default look. */
   appTheme: string;
   /**
@@ -144,6 +156,9 @@ export interface Settings {
    */
   themeOptions: Record<string, Record<string, number>>;
 }
+
+/** The double-text cap (see `Settings.doubleTextCap`). */
+export type DoubleTextCap = "judge" | 1 | 2 | 3;
 
 /**
  * One message in the format the chat completions API expects.
@@ -552,4 +567,64 @@ export interface MemoryLogEntry {
   /** The message it came from, to see exactly where. */
   messageId: string | null;
   createdAt: string;
+}
+
+// ------------------------------------------------------------ stage 8
+
+/** Why she's texting first. */
+export type ProactiveReason = "reminder" | "checkin" | "followup" | "just-because";
+
+/**
+ * What a snapshot check did:
+ *
+ * - `"sent"`: she texted first.
+ * - `"queued"`: a reminder, routed into the conversation you're having.
+ * - `"waiting"`: something to say, but every channel was mid-conversation.
+ * - `"declined"`: she was asked to text, and chose not to.
+ * - `"nothing"`: nothing worth texting about.
+ * - `"error"`: something failed (Jev unreachable, say).
+ */
+export type ProactiveOutcome = "sent" | "queued" | "waiting" | "declined" | "nothing" | "error";
+
+/** One snapshot check, as kept in the texting-first log. */
+export interface ProactiveLogEntry {
+  id: string;
+  trigger: "timer" | "manual";
+  outcome: ProactiveOutcome;
+  reason: ProactiveReason | null;
+  channelId: string | null;
+  messageId: string | null;
+  /** What happened and why, in words. */
+  detail: string;
+  /** For check-ins: which work block, so each gets one. */
+  key: string | null;
+  createdAt: string;
+}
+
+/** A reminder that has gone off, and hasn't been sent or skipped yet. */
+export interface DueReminder {
+  /** `planId:date:reminderId`: unique for each reminder of each occurrence. */
+  key: string;
+  occurrence: Occurrence;
+  reminder: ReminderTime;
+  /** When it went off. */
+  at: string;
+  /** In words: "Dentist (appointment), today at 3:00p". */
+  text: string;
+  /** The channel it was routed into, if every channel was mid-conversation. */
+  queuedIn: string | null;
+}
+
+/** What happened to a reminder. */
+export interface ReminderRecord {
+  key: string;
+  planId: string;
+  text: string;
+  status: "queued" | "sent" | "skipped";
+  channelId: string | null;
+  messageId: string | null;
+  /** Why ("they already talked about it, 92% sure"). */
+  reason: string;
+  dueAt: string;
+  updatedAt: string;
 }

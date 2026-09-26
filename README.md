@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: stage 7 of 8.** Channels where you text her, in bubbles, a 📅 planner for your shifts and plans, and a memory that notices what you tell her, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself), [stage 6](docs/stage-6.md) (tools: she looks things up) and [stage 7](docs/stage-7.md) (her memory: decision models, confidence and batch jobs).
+**Status: all 8 stages are built**, and ready for a live test on the phone (see [Live test notes](#live-test-notes)). Channels where you text her, in bubbles, a 📅 planner for your shifts and plans, a memory that notices what you tell her, and texting first, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself), [stage 6](docs/stage-6.md) (tools: she looks things up), [stage 7](docs/stage-7.md) (her memory: decision models, confidence and batch jobs) and [stage 8](docs/stage-8.md) (texting first: background timers and notifications).
 
 ## What it can do
 
@@ -18,11 +18,14 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **She knows your day**: today's and tomorrow's plans, and whether you're at work, are always in front of her. Anything further (next week's shifts, the headache log, another channel) she **looks up with tools** when it comes up, if her profile can use tools. What she looked up shows under her reply ("⚙ Kitsikai looked up plans for Oct 5–11"), and each channel has a **tool log**.
 - **Her memory**: a fast decision model, **Jev**, reads each of your messages against your trackers and for plans, things worth remembering, and requests ("pin that"). What it notices goes on her **scratchpad** in pencil; every few hours she **processes** it: what's clearly true goes into the log, what's wrong is tossed, and she asks about anything she's unsure of. A plan from chat only goes into the planner once you say yes. Correct her just by talking ("wait no, it's Friday").
 - **Pins**: what matters right now, always in her view, each with why and when to take it down, up to a cap. Unpinned things go into a drawer she can still look in. She can mention her notes when it feels natural ("noted 📌").
-- **The advanced page** (Settings → Advanced): her notes, pins, drawer and a processing log of what she kept, tossed and asked about, and why. Look, don't touch: everything changes through her.
+- **The advanced page** (Settings → Advanced): her notes, pins, drawer and a processing log of what she kept, tossed and asked about, and why, plus what her texting-first checks decided. **Process now** and **Check now** buttons for testing. Look, don't touch: everything changes through her.
+- **She texts first**, when it makes sense, and usually doesn't: **reminders** for your plans in her own words (skipped if you just talked about it), "how'd it go?" when your **shift ends**, **following up** on something, or **just because** after a quiet stretch. She picks the channel that fits, and doesn't interrupt a conversation in progress. A **double-text cap** (or "let her judge") keeps her from overdoing it.
+- **On call**: tell her you got called in, and she treats you as at work until you say you're done or the window ends.
+- **Notifications** (Termux): her messages show up on your phone while the app isn't open; tap one to open that channel.
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, how many recent messages she sees, how long she waits before replying, and how fast she "types".
+- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, texting first (on or off, how often she checks, the double-text cap), notifications, how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -50,11 +53,7 @@ Then open <http://127.0.0.1:3000> in your browser.
 
 ### On your phone (Termux)
 
-The server is designed to run in [Termux](https://termux.dev) on the phone you text from, like Aettica:
-
-1. Install Bun inside Termux. If the installer from bun.sh doesn't work on your phone, run it inside a Linux environment set up with `proot-distro` instead.
-2. Follow the steps above, then run `bun start` and leave Termux open.
-3. Open <http://127.0.0.1:3000> in Chrome, then choose **menu → Add to Home screen** (or **Install app**). Kitsikai now opens like an app.
+The server is designed to run in [Termux](https://termux.dev) on the phone you text from, like Aettica. **[docs/install.md](docs/install.md) walks through it step by step**, for someone who's never done it before: Termux and Termux:API from F-Droid, battery settings, Bun inside `proot-distro`, your API key, starting it, and adding the app to your home screen.
 
 The app only works while the server is running. If it says it can't connect, start the server in Termux again.
 
@@ -100,7 +99,10 @@ src/
   jev.ts       Jev, the decision model: questions, answers, confidence tiers, the fallback
   scratchpad.ts  Jev's check of your messages during chat: new notes, corrections, your yes
   processing.ts  Processing her notes every few hours: pencil to pen, and her pins
-  scheduler.ts What runs on a timer (processing; from stage 8, texting first)
+  scheduler.ts What runs on a timer: processing her notes, and her snapshot check
+  proactive.ts Texting first: the snapshot check, picking a channel, the double-text cap
+  reminders.ts Due reminders and what happened to each, on-call status, the texting-first log
+  notify.ts    Phone notifications through Termux, and whether the app is on screen
   writer.ts    The processing writer: words for her notes, pins and plan cards
   memory.ts    Her notes, pins and processing log in the database, and in her prompt
   binder.ts    Plans, work and stickers, in words (for the prompt and the tools)
@@ -126,6 +128,19 @@ defaults/      Her starting persona
 test/          Tests
 docs/          How things work, stage by stage, and the theme reference
 ```
+
+## Live test notes
+
+Everything is tested against a fake nanoGPT (`bun test`), but a few things can only be answered on your phone, with your real key. They're DESIGN.md's open questions. Here's what to try, and what to tell Claude (or check yourself) afterwards:
+
+1. **Is Jev reachable, and does Kitsikai understand it?** Settings → **Test Jev**. "It's working" means yes. Anything else: copy the message and the **raw reply** shown under it. The request format lives in `jevRequestBody` and the reading in `readAnswers` (`src/jev.ts`), so a mismatch is a small fix. Until then, set **If Jev can't answer, ask** to a profile, so her memory and texting first keep working.
+2. **Bubbles:** chat for a bit. Does she split her replies into several bubbles (the model writing `<cht>` between them)? If one model never does, note which: its profile's **model notes** can remind it.
+3. **Tools:** for each profile, **Test tools**. Then ask about next week ("what am I working next week?") and see whether "⚙ Kitsikai looked up plans…" appears under her reply. Channel settings → **Tool log** shows anything that went wrong.
+4. **Screenshots:** in the 📅 planner, import a screenshot of your schedule, with a vision profile set in Settings. How many rows needed fixing? Which model read it best?
+5. **Her memory:** make a tracker (say "headache", 1–10), then mention a headache in chat. Settings → Advanced → **Kitsikai's notes**: is it on her scratchpad? Press **Process now**: does it land in the log? Mention a plan ("dentist thursday at 3"): after processing, does she ask whether to add it, and does your "yes" put it in the planner?
+6. **Texting first:** make an appointment for an hour from now. On the advanced page, press **Check now**: she should text you a reminder. Then lock your phone and wait for a regular check (every 10 minutes by default) on something else, like a shift ending.
+7. **Notifications:** send her a message, then right away switch to another app (or lock the phone) before she answers. When her reply comes, a notification titled "Kitsikai in #general" should appear. Tap it: the app should open at that channel. If Settings says notifications aren't available, see the troubleshooting table in [docs/install.md](docs/install.md).
+8. **Timings:** do the defaults feel right? Waiting before replying (4 s), typing speed, processing every 3 hours, checking every 10 minutes, 10 pins. All are in Settings.
 
 ## Licence
 

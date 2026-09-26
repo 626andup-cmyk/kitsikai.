@@ -171,6 +171,9 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.note-card` | A note. Has `data-kind` (`tracker`, `plan`, `remember`, `request`) and `data-status` (`open`, `asking`, `bringup`). |
 | `.memory-rounds`, `.memory-round`, `.memory-round-title` | The processing log's rounds. A round has `data-trigger` (`timer`, `early`, `manual`). |
 | `.memory-log`, `.memory-log-line`, `.memory-log-action`, `.memory-log-text`, `.memory-log-reason` | One line of the log. Has `data-action` (`noted`, `committed`, `tossed`, `asking`, `pinned`, `unpinned`...). |
+| `.proactive-check-result` | What "Check now" found (texting first). Has `data-outcome` (`sent`, `queued`, `waiting`, `declined`, `nothing`, `error`). |
+| `.proactive-line` | One texting-first check in the log. Has `data-outcome`. |
+| `.reminder-due`, `.reminder-record` | A reminder that's due, and one that was dealt with (`data-status`: `sent`, `skipped`, `queued`) |
 | `.theme-layers`, `.layer-1` to `.layer-4` | Empty layers for themes to draw on (see Layers below) |
 | `.channel-indicator` | A pill behind the open channel's link, hidden unless a theme shows it (see Liquid glass below). Gets `.stretching`, then `.settling`, as it moves between channels. |
 | `.theme-options`, `.theme-option-group`, `.theme-option`, `.theme-option-label`, `.theme-option-value` | Sliders in Appearance |

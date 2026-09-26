@@ -9,14 +9,15 @@
  *     hour") has sat for a few minutes, so it doesn't wait for the next
  *     regular one. At most one every 10 minutes, so a Jev outage can't turn
  *     it into a request every minute.
- *
- * (Stage 8 adds her snapshot check here: whether to text you first.)
+ *   - **Her snapshot check** (stage 8), every few minutes (Settings, default
+ *     10): whether to text you first (src/proactive.ts).
  *
  * The timer itself is only started by the real server (`start`). Tests call
  * `tick()` with a fake clock instead, so a whole day can pass in a moment.
  */
 
 import type { Processing, RunResult } from "./processing.ts";
+import type { CheckResult, Proactive } from "./proactive.ts";
 import type { Store } from "./store.ts";
 import type { ProcessingTrigger } from "./types.ts";
 
@@ -34,6 +35,7 @@ export class Scheduler {
     private readonly store: Store,
     private readonly processing: Processing,
     private readonly clock: () => Date,
+    private readonly proactive?: Proactive,
   ) {}
 
   /** Start looking once a minute. */
@@ -69,9 +71,25 @@ export class Scheduler {
     return waiting ? "early" : null;
   }
 
-  /** Run whatever is due. Returns the round, if one ran. */
-  async tick(): Promise<RunResult | null> {
+  /** Whether her snapshot check is due (stage 8). */
+  snapshotDue(): boolean {
+    if (!this.proactive || this.proactive.isRunning()) return false;
+    const last = this.proactive.lastCheckAt;
+    if (!last) return true;
+    return this.clock().getTime() - last.getTime() >= this.store.getSettings().snapshotMinutes * 60_000;
+  }
+
+  /** When the next snapshot check is due. */
+  nextCheckAt(): Date {
+    const last = this.proactive?.lastCheckAt;
+    return last ? new Date(last.getTime() + this.store.getSettings().snapshotMinutes * 60_000) : this.clock();
+  }
+
+  /** Run whatever is due: a processing round, then the snapshot check. */
+  async tick(): Promise<{ processed: RunResult | null; checked: CheckResult | null }> {
     const trigger = this.due();
-    return trigger ? this.processing.run(trigger) : null;
+    const processed = trigger ? await this.processing.run(trigger) : null;
+    const checked = this.snapshotDue() ? await this.proactive!.check("timer") : null;
+    return { processed, checked };
   }
 }

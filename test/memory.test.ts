@@ -536,7 +536,7 @@ describe("processing", () => {
 describe("the scheduler", () => {
   test("processes every few hours (settings: every 3)", async () => {
     expect(app.scheduler.due()).toBe("timer"); // never processed yet
-    expect((await app.scheduler.tick())!.run.trigger).toBe("timer");
+    expect((await app.scheduler.tick()).processed!.run.trigger).toBe("timer");
     expect(app.scheduler.due()).toBeNull();
     expect(app.scheduler.nextRunAt()).toEqual(new Date(2026, 8, 26, 19, 0));
     later(179);
@@ -718,9 +718,9 @@ describe("the API", () => {
     expect(app.store.getSettings()).toMatchObject({ decisionFallback: "", writerAssignment: "" });
   });
 
-  test("the database has the memory tables (layout version 6)", async () => {
+  test("the database has the memory tables (from layout version 6)", async () => {
     const { SCHEMA_VERSION } = await import("../src/db.ts");
-    expect(SCHEMA_VERSION).toBe(6);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(6);
     const tables = app.store.db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
     expect(tables.map((t) => t.name)).toEqual(expect.arrayContaining(["notes", "pins", "processing_runs", "memory_log", "scratchpad_marks"]));
   });

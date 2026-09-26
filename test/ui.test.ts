@@ -423,5 +423,45 @@ describeUi("the app in a browser", () => {
     expect(await page.textContent(".message.highlighted .message-content")).toBe("my head is killing me, like a 7");
     expect(t.errors).toEqual([]);
   });
+
+  test("texting first: its settings save, and Check now texts a due reminder into the chat", async () => {
+    const { page, app, fake } = t;
+    // An appointment in an hour: its "2 hours before" reminder went off an hour ago.
+    const start = new Date(Date.now() + 60 * 60_000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    app.store.plans.create({
+      kind: "appointment",
+      title: "Dentist",
+      startDate: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+      startTime: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+    });
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+
+    await page.click("#settings-button");
+    expect(await page.isChecked("#setting-text-first")).toBe(true);
+    expect(await page.inputValue("#setting-double-text-cap")).toBe("judge");
+    // No Termux here, so notifications say they're unavailable.
+    expect(await page.isVisible("#notifications-unavailable")).toBe(true);
+    await page.selectOption("#setting-double-text-cap", "2");
+    await page.fill("#setting-snapshot-minutes", "15");
+    await page.check("#setting-show-advanced");
+    await page.click('#settings-form button[type="submit"]');
+    await page.waitForSelector("#settings-dialog", { state: "hidden" });
+    expect(app.store.getSettings()).toMatchObject({ doubleTextCap: 2, snapshotMinutes: 15, showAdvanced: true });
+
+    await page.click("#settings-button");
+    await page.click("#open-notes");
+    await page.waitForSelector("#notes-proactive .reminder-due");
+    expect(await page.textContent("#notes-proactive .reminder-due")).toMatch(/^Dentist \(appointment\), (today|tomorrow) at .* \(2 hours before\)$/);
+    fake.replies.push({ content: "dentist in an hour!!" });
+    await page.click("#check-now");
+    await page.waitForSelector('.proactive-check-result[data-outcome="sent"]');
+    expect(await page.textContent(".proactive-check-result")).toContain("Texted first: Reminders due: Dentist");
+    expect(await page.textContent('#notes-proactive .reminder-record[data-status="sent"] .memory-log-action')).toBe("Sent");
+    await page.click("#notes-dialog [data-close]");
+    await page.click("#settings-dialog [data-close]");
+    await page.waitForSelector('.message[data-author="kitsikai"] .message-content:has-text("dentist in an hour!!")');
+    expect(t.errors).toEqual([]);
+  });
 });
 

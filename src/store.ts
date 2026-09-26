@@ -21,6 +21,7 @@ import { ToolLog } from "./activity.ts";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { Memory } from "./memory.ts";
+import { ProactiveLog, Reminders } from "./reminders.ts";
 import { Plans } from "./planner.ts";
 import { Profiles } from "./profiles.ts";
 import { Trackers } from "./trackers.ts";
@@ -67,6 +68,10 @@ export function defaultSettings(): Settings {
     processingHours: 3,
     pinCap: 10,
     showAdvanced: false,
+    textFirst: true,
+    snapshotMinutes: 10,
+    doubleTextCap: "judge",
+    notifications: true,
   };
 }
 
@@ -141,10 +146,17 @@ export function validateSettings(input: unknown): Partial<Settings> {
     clean.processingHours = numberInRange(raw.processingHours, "processingHours", 0.25, 48, false);
   }
   if (raw.pinCap !== undefined) clean.pinCap = numberInRange(raw.pinCap, "pinCap", 1, 50, true);
-  if (raw.showAdvanced !== undefined) {
-    if (typeof raw.showAdvanced !== "boolean") throw new ValidationError("showAdvanced must be true or false");
-    clean.showAdvanced = raw.showAdvanced;
+  if (raw.showAdvanced !== undefined) clean.showAdvanced = bool(raw.showAdvanced, "showAdvanced");
+  // Stage 8: texting first.
+  if (raw.textFirst !== undefined) clean.textFirst = bool(raw.textFirst, "textFirst");
+  if (raw.snapshotMinutes !== undefined) clean.snapshotMinutes = numberInRange(raw.snapshotMinutes, "snapshotMinutes", 1, 240, true);
+  if (raw.doubleTextCap !== undefined) {
+    if (raw.doubleTextCap !== "judge" && raw.doubleTextCap !== 1 && raw.doubleTextCap !== 2 && raw.doubleTextCap !== 3) {
+      throw new ValidationError('doubleTextCap must be "judge", 1, 2 or 3');
+    }
+    clean.doubleTextCap = raw.doubleTextCap;
   }
+  if (raw.notifications !== undefined) clean.notifications = bool(raw.notifications, "notifications");
 
   return clean;
 }
@@ -255,6 +267,11 @@ export function channelName(value: unknown): string {
     .replace(/^#+/, "");
   if (cleaned === "") throw new ValidationError("name must be non-empty text");
   return cleaned;
+}
+
+function bool(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new ValidationError(`${field} must be true or false`);
+  return value;
 }
 
 export function requireObject(input: unknown, what: string): Record<string, unknown> {
@@ -379,6 +396,10 @@ export class Store {
   readonly toolLog: ToolLog;
   /** Her scratchpad, pins and processing log (see `src/memory.ts`). */
   readonly memory: Memory;
+  /** Reminders sent, and on-call shifts you're called in to (see `src/reminders.ts`). */
+  readonly reminders: Reminders;
+  /** What her snapshot checks decided (see `src/proactive.ts`). */
+  readonly proactiveLog: ProactiveLog;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -388,8 +409,13 @@ export class Store {
    *
    * @param dataDir  Folder for the database. Created if it doesn't exist.
    *                 Pass `":memory:"` for a throwaway database (for tests).
+   * @param clock    What time it is, for new messages' timestamps. Tests
+   *                 pass a fake clock, so messages and her timers agree.
    */
-  constructor(dataDir: string) {
+  constructor(
+    dataDir: string,
+    readonly clock: () => Date = () => new Date(),
+  ) {
     const inMemory = dataDir === ":memory:";
     if (!inMemory) mkdirSync(dataDir, { recursive: true });
     const path = inMemory ? ":memory:" : join(dataDir, "kitsikai.db");
@@ -401,6 +427,8 @@ export class Store {
     this.trackers = new Trackers(this.db);
     this.toolLog = new ToolLog(this.db);
     this.memory = new Memory(this.db);
+    this.reminders = new Reminders(this.db);
+    this.proactiveLog = new ProactiveLog(this.db);
 
     if (isNew) this.seed();
   }
@@ -623,7 +651,7 @@ export class Store {
         author: input.author,
         content: input.content,
         turnId: input.turnId ?? null,
-        createdAt: input.createdAt ?? new Date().toISOString(),
+        createdAt: input.createdAt ?? this.clock().toISOString(),
         model: input.model ?? null,
         profile: input.profile ?? null,
       });
@@ -656,7 +684,7 @@ export class Store {
   editMessage(id: string, content: string): Message {
     const result = this.db
       .query("UPDATE messages SET content = $content, edited_at = $editedAt WHERE id = $id")
-      .run({ id, content, editedAt: new Date().toISOString() });
+      .run({ id, content, editedAt: this.clock().toISOString() });
     if (result.changes === 0) throw new NotFoundError("message");
     return this.getMessage(id);
   }

@@ -62,6 +62,22 @@ Dates can be written as `2026-10-05` or as "today", "tomorrow", "yesterday". Mis
 
 These tools only **read**. Changing the binder through her comes in stage 7, and on purpose goes through her scratchpad first, never straight into your plans.
 
+### Later: keeping your trackers, like you can
+
+After stage 8, she got three tools that **write**, for trackers only:
+
+| Tool | What it does | Summary shown |
+| --- | --- | --- |
+| `make_tracker` | A new tracker: its name, what it records (yes or no, 1 to 10, a note), hint words, and whether she may bring it up. Refuses a name that's taken, so she logs to that one instead. | "made a tracker: headache (1 to 10)" |
+| `log_sticker` | A sticker on a day: today unless she says, never after today. The same tracker and day again changes the sticker, which is how she corrects it. | "logged headache 7/10 for Mon, Sep 28" |
+| `remove_sticker` | Takes a sticker off a day, when you say it's wrong or ask her to | "took off took meds yes for Mon, Sep 28" |
+
+Unlike the rest of her memory, these go **straight in**, the way yours do in the trackers channel. That's the point: you asked her to keep them like you can. Her stickers are marked as hers ("She logged this herself, from chat", source `kitsikai`, migration 10), link to the message she logged them for, and can be changed or deleted like any sticker. If she changes one of yours, it becomes hers.
+
+They also keep the pencil-first path from logging things twice: when she logs or removes a sticker, Jev's pencil notes about the same tracker and day are settled at the same time (done, or tossed), and processing never adds a sticker that's already there.
+
+She can't rename or delete trackers: deleting one deletes all its stickers, and that stays yours. Like every tool, these are only offered on profiles marked "Can use tools". Without tools, Jev still notices stickers for trackers you've made (stage 7).
+
 ## Seeing what she did
 
 Every tool call is saved in the **tool log** (`tool_calls` table, migration 5; `src/activity.ts`, from Aettica), with the arguments exactly as the model wrote them (even if broken), what was sent back, whether it worked, and whether the model used the API or wrote the call as text.

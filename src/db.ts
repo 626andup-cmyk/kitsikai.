@@ -396,6 +396,32 @@ export const MIGRATIONS: Migration[] = [
     message_id TEXT REFERENCES messages (id) ON DELETE SET NULL
   );
   `,
+
+  // ---------------------------------------------------------------- 10
+  // She can put stickers on days herself now (her log_sticker tool), so a
+  // log entry has a fourth way it got there: 'kitsikai'. SQLite can't change
+  // a CHECK rule in place, so the table is rebuilt: a new one with the new
+  // rule, everything copied over, the old one dropped. (Nothing points at
+  // log_entries, so dropping it is safe.)
+  `
+  CREATE TABLE log_entries_new (
+    id         TEXT PRIMARY KEY,
+    tracker_id TEXT NOT NULL REFERENCES trackers (id) ON DELETE CASCADE,
+    date       TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    -- How it got there: you added it, processing committed it, she asked and
+    -- you confirmed, or she logged it herself.
+    source     TEXT NOT NULL DEFAULT 'user' CHECK (source IN ('user', 'processing', 'confirmed', 'kitsikai')),
+    message_id TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  INSERT INTO log_entries_new (id, tracker_id, date, value, source, message_id, created_at, updated_at)
+    SELECT id, tracker_id, date, value, source, message_id, created_at, updated_at FROM log_entries;
+  DROP TABLE log_entries;
+  ALTER TABLE log_entries_new RENAME TO log_entries;
+  CREATE INDEX log_entries_by_date ON log_entries (date);
+  `,
 ];
 
 /** How many prepared queries to keep, at most (the app has a few hundred). */

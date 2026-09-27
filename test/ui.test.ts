@@ -5,6 +5,7 @@
  */
 
 import { afterAll, afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { runTool } from "../src/tools.ts";
 import { CHROMIUM, closeBrowser, openApp, type BrowserApp } from "./browser.ts";
 
 const describeUi = CHROMIUM ? describe : describe.skip;
@@ -396,6 +397,21 @@ describeUi("the app in a browser", () => {
     await page.click("#log-entry-message .message-link");
     await page.waitForSelector(`.message.highlighted[data-message-id="${message.id}"]`);
     expect(await page.textContent("#channel-name")).toBe("general");
+    expect(t.errors).toEqual([]);
+  });
+
+  test("a tracker she makes, and a sticker she logs, show up while you look", async () => {
+    const { page, app } = t;
+    const general = app.store.listChannels()[0]!;
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    await page.click('.channel-link:has-text("planner")');
+    await page.waitForSelector(".calendar-day.today");
+    const ctx = { store: app.store, channel: general, now: new Date(), events: app.events };
+    expect(runTool(ctx, "make_tracker", { name: "headache", records: "1 to 10" }).ok).toBe(true);
+    expect(runTool(ctx, "log_sticker", { tracker: "headache", value: "6" }).ok).toBe(true);
+    await page.waitForSelector('.day-stickers .log-sticker:has-text("headache")');
+    await page.click('.day-stickers .log-sticker:has-text("headache")');
+    expect(await page.textContent("#log-entry-source")).toBe("She logged this herself, from chat.");
     expect(t.errors).toEqual([]);
   });
 

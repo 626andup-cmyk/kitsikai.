@@ -129,9 +129,14 @@ export function todayAndTomorrow(store: Store, now: Date, calledIn?: Set<string>
 
 /** A sticker, in a line: "Sat Sep 26: headache 6/10". */
 export function describeEntry(entry: LogEntry, tracker: Tracker | undefined): string {
+  return `${dayName(entry.date)}: ${stickerWords(entry, tracker)}`;
+}
+
+/** "headache 7/10", "took meds yes", "payday "$1,240"": a sticker without its day. */
+export function stickerWords(entry: LogEntry, tracker: Tracker | undefined): string {
   const value =
     tracker?.kind === "yesno" ? (entry.value === "yes" ? "yes" : "no") : tracker?.kind === "scale" ? `${entry.value}/10` : `"${entry.value}"`;
-  return `${dayName(entry.date)}: ${tracker?.name ?? "?"} ${value}`;
+  return `${tracker?.name ?? "?"} ${value}`;
 }
 
 /** What each way a sticker got there means, for her. */
@@ -139,4 +144,5 @@ export const SOURCE_WORDS: Record<LogEntry["source"], string> = {
   user: "they logged it",
   processing: "you noted it from chat",
   confirmed: "you asked and they confirmed",
+  kitsikai: "you logged it yourself",
 };

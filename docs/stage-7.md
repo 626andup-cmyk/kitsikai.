@@ -193,7 +193,7 @@ In `src/tools.ts`, alongside stage 6's lookups:
 | `jot_note` | A note on her scratchpad: something to remember, or your request to pin or let go. In pencil, like everything else. | "jotted down "they love pho"" |
 | `look_in_drawer` | Search pins she's taken down | "looked in the drawer for "exam"" |
 
-Neither changes the binder. Only processing does, and plans only after your yes.
+Neither changes the binder. Only processing does, and plans only after your yes. (Later, trackers got an exception you asked for: she can make them and log stickers herself. See [stage 6](stage-6.md#later-keeping-your-trackers-like-you-can).)
 
 ## The advanced page
 

@@ -42,12 +42,15 @@ afterEach(async () => {
 const run = (name: string, args: Record<string, unknown> = {}) => runTool(ctx, name, args);
 
 describe("the tools", () => {
-  test("are the binder lookups, her notes (stage 7), and do_nothing", () => {
+  test("are the binder lookups, keeping trackers, her notes (stage 7), and do_nothing", () => {
     expect(TOOL_NAMES).toEqual([
       "look_up_plans",
       "find_plans",
       "list_trackers",
       "look_up_log",
+      "make_tracker",
+      "log_sticker",
+      "remove_sticker",
       "read_channel",
       "search_history",
       "jot_note",
@@ -126,6 +129,124 @@ describe("the tools", () => {
 
   test("unknown tools are explained", () => {
     expect(run("book_flight").summary).toContain('There\'s no tool called "book_flight"');
+  });
+});
+
+describe("keeping their trackers, like they can", () => {
+  /** Your message this turn answers. */
+  const yours = (content: string) => app.store.addMessage({ channelId: general.id, author: "user", content, createdAt: new Date(2026, 8, 28, 10, 59).toISOString() });
+  const stickers = () => app.store.trackers.entries().map((e) => ({ date: e.date, value: e.value, source: e.source }));
+
+  test("make_tracker: a new tracker, with what it records, hint words, and whether she may bring it up", () => {
+    const events: any[] = [];
+    ctx.events = app.events;
+    app.events.listen((e) => events.push(e));
+    const made = run("make_tracker", { name: " Migraine ", records: "1 to 10", hint_words: ["Head hurts", "migraine"], may_bring_up: false });
+    expect(made).toMatchObject({ ok: true, summary: "made a tracker: Migraine (1 to 10)" });
+    expect(made.result).toMatchObject({ made: { name: "Migraine", records: "1 to 10", hint_words: ["head hurts", "migraine"], you_may_bring_it_up: false } });
+    expect(app.store.trackers.list()).toEqual([expect.objectContaining({ name: "Migraine", kind: "scale", canBringUp: false })]);
+    expect(events).toContainEqual({ type: "log" });
+
+    // Other ways to say what it records; she may bring it up unless told otherwise.
+    expect(run("make_tracker", { name: "meds", records: "yes/no" }).ok).toBe(true);
+    expect(run("make_tracker", { name: "payday", records: "a note" }).ok).toBe(true);
+    expect(app.store.trackers.list().map((t) => [t.name, t.kind, t.canBringUp])).toEqual([
+      ["Migraine", "scale", false],
+      ["meds", "yesno", true],
+      ["payday", "note", true],
+    ]);
+  });
+
+  test("make_tracker: explains mistakes, and won't make the same one twice", () => {
+    run("make_tracker", { name: "headache", records: "1 to 10" });
+    expect(run("make_tracker", { name: "Headache", records: "yes or no" }).summary).toBe('There\'s already a tracker called "headache" (1 to 10). Log to it with log_sticker.');
+    expect(run("make_tracker", { name: "gym", records: "sometimes" }).summary).toBe('"records" must be one of: "yes or no", "1 to 10", "a note".');
+    expect(run("make_tracker", { records: "a note" }).summary).toBe('"name" is required.');
+    expect(run("make_tracker", { name: "gym", records: "yes or no", hint_words: "lifting" }).summary).toBe('"hint_words" must be a list of words.');
+    expect(run("make_tracker", { name: "x".repeat(61), records: "yes or no" }).summary).toContain("60 characters");
+    expect(app.store.trackers.list()).toHaveLength(1);
+  });
+
+  test("log_sticker: a sticker on today, as hers, linked to your message", () => {
+    const events: any[] = [];
+    ctx.events = app.events;
+    app.events.listen((e) => events.push(e));
+    const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
+    const message = yours("my head is killing me, like a 7");
+    const logged = run("log_sticker", { tracker: "headache", value: 7 });
+    expect(logged).toMatchObject({ ok: true, summary: "logged headache 7/10 for Mon, Sep 28", result: { logged: "Mon, Sep 28: headache 7/10" } });
+    expect(app.store.trackers.entries({ trackerId: headache.id })).toEqual([
+      expect.objectContaining({ date: "2026-09-28", value: "7", source: "kitsikai", messageId: message.id }),
+    ]);
+    expect(events).toContainEqual({ type: "log" });
+    // look_up_log tells her it was her.
+    expect(run("look_up_log").result).toEqual([{ entry: "Mon, Sep 28: headache 7/10", how: "you logged it yourself" }]);
+  });
+
+  test("log_sticker: yesterday or a date, never the future; mistakes are explained", () => {
+    app.store.trackers.create({ name: "took meds", kind: "yesno" });
+    app.store.trackers.create({ name: "headache", kind: "scale" });
+    expect(run("log_sticker", { tracker: "meds", value: "Yes", date: "yesterday" }).summary).toBe("logged took meds yes for Sun, Sep 27");
+    expect(run("log_sticker", { tracker: "took meds", value: "no", date: "2026-09-20" }).ok).toBe(true);
+    expect(run("log_sticker", { tracker: "took meds", value: "yes", date: "tomorrow" }).summary).toBe("Stickers are for what happened: pick today or a day before.");
+    expect(run("log_sticker", { tracker: "headache", value: "11" }).summary).toBe("A scale tracker's value must be a whole number from 1 to 10.");
+    expect(run("log_sticker", { tracker: "gym", value: "yes" }).summary).toContain('There\'s no tracker called "gym"');
+    expect(run("log_sticker", { tracker: "headache" }).summary).toBe('"value" is required.');
+    expect(stickers()).toEqual([
+      { date: "2026-09-27", value: "yes", source: "kitsikai" },
+      { date: "2026-09-20", value: "no", source: "kitsikai" },
+    ]);
+  });
+
+  test("log_sticker: the same tracker and day again changes it, even one you added; the same value changes nothing", () => {
+    const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
+    app.store.trackers.addEntry({ trackerId: headache.id, date: "2026-09-28", value: 6 });
+    expect(run("log_sticker", { tracker: "headache", value: "6" })).toMatchObject({ summary: "already had headache 6/10 for Mon, Sep 28", result: { already: "Mon, Sep 28: headache 6/10" } });
+    expect(stickers()).toEqual([{ date: "2026-09-28", value: "6", source: "user" }]);
+
+    const message = yours("ok it's more like a 9 now");
+    expect(run("log_sticker", { tracker: "headache", value: "9" })).toMatchObject({ summary: "changed headache 9/10 for Mon, Sep 28", result: { changed: "Mon, Sep 28: headache 9/10", was: "6" } });
+    expect(app.store.trackers.entries()).toEqual([expect.objectContaining({ value: "9", source: "kitsikai", messageId: message.id })]);
+  });
+
+  test("remove_sticker: takes one off a day, and explains when there's none", () => {
+    const meds = app.store.trackers.create({ name: "took meds", kind: "yesno" });
+    app.store.trackers.addEntry({ trackerId: meds.id, date: "2026-09-27", value: "yes" });
+    app.store.trackers.addEntry({ trackerId: meds.id, date: "2026-09-28", value: "yes" });
+    expect(run("remove_sticker", { tracker: "took meds" })).toMatchObject({ ok: true, summary: "took off took meds yes for Mon, Sep 28", result: { removed: "Mon, Sep 28: took meds yes" } });
+    expect(stickers()).toEqual([{ date: "2026-09-27", value: "yes", source: "user" }]);
+    expect(run("remove_sticker", { tracker: "took meds" }).summary).toBe("There's no took meds sticker on Mon, Sep 28.");
+    expect(run("remove_sticker", { tracker: "took meds", date: "yesterday" }).ok).toBe(true);
+    expect(stickers()).toEqual([]);
+  });
+
+  test("her pencil notes about the same tracker and day are settled, so processing won't log them again", () => {
+    const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
+    const note = (date: string, value: string) =>
+      app.store.memory.addNote({ kind: "tracker", text: `headache ${value}/10`, origin: "noticed", channelId: general.id, trackerId: headache.id, date, value }, NOW);
+    const today = note("2026-09-28", "7");
+    const other = note("2026-09-27", "4");
+    run("log_sticker", { tracker: "headache", value: "7" });
+    expect(app.store.memory.getNote(today.id).status).toBe("done");
+    expect(app.store.memory.getNote(other.id).status).toBe("open");
+    expect(app.store.memory.recentLog()[0]).toMatchObject({ action: "committed", text: "headache 7/10", reason: "you logged it yourself" });
+
+    // Taking a sticker off tosses the note about it too.
+    const again = note("2026-09-28", "7");
+    run("remove_sticker", { tracker: "headache" });
+    expect(app.store.memory.getNote(again.id).status).toBe("tossed");
+    expect(app.store.memory.recentLog()[0]).toMatchObject({ action: "tossed", reason: "you took the sticker off" });
+  });
+
+  test("in a turn: she logs it, and the line under her reply says so", async () => {
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true });
+    app.store.trackers.create({ name: "headache", kind: "scale" });
+    const message = yours("headache again, a 5 today");
+    fake.replies.push({ toolCalls: [{ name: "log_sticker", arguments: { tracker: "headache", value: "5" } }] }, { content: "ugh, noted" });
+    const { data } = await call("POST", `/api/channels/${general.id}/turn`, {});
+    expect(data.toolCalls[0]).toMatchObject({ name: "log_sticker", status: "ok", summary: "logged headache 5/10 for Mon, Sep 28" });
+    expect(app.store.trackers.entries()).toEqual([expect.objectContaining({ value: "5", source: "kitsikai", messageId: message.id })]);
+    expect(fake.requests[0]!.messages[0]!.content).toContain("put a sticker on a day when they tell you how it went (log_sticker)");
   });
 });
 

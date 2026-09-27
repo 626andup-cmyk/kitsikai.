@@ -163,7 +163,7 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.tracker-strip`, `.tracker-day`, `.tracker-day-label` | The two-week strip. A day has `data-date`, and `.today`. |
 | `.quick-log`, `.quick-log-label`, `.quick-log-scale`, `.quick-log-note` | Logging today in one tap |
 | `.log-entries`, `.log-entry`, `.log-entry-date`, `.message-link` | A tracker's latest stickers, and "show the message" |
-| `.log-sticker` | A sticker. Has `data-kind`, `data-value` and `data-source` (`user`, `processing`, `confirmed`). |
+| `.log-sticker` | A sticker. Has `data-kind`, `data-value` and `data-source` (`user`, `processing`, `confirmed`, `kitsikai`). |
 | `.calendar-stickers`, `.day-panel-stickers`, `.day-stickers-title`, `.day-stickers`, `.day-sticker-add` | Stickers on calendar days: dots in the grid, and the day panel's list |
 | `.message.highlighted` | A message you jumped to |
 | `.shift-chip.overnight`, `.plan-card-stay`, `.shift-row-stay`, `.plan-overnight`, `.review-overnight` | Linked shifts: 🏨 on the calendar chip, the hotel-night line on a card and in the weekly list (`.unlinked` when there's no shift to link to), and the checkbox in the plan editor and review list |

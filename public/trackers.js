@@ -34,6 +34,7 @@ const SOURCE_NAMES = {
   user: "You added this.",
   processing: "She noted this from chat, and it held up at processing.",
   confirmed: "She asked, and you confirmed.",
+  kitsikai: "She logged this herself, from chat.",
 };
 
 function trackerById(id) {

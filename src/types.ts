@@ -415,7 +415,7 @@ export interface Tracker {
  * How a log entry got there: you added it, processing committed it
  * (stage 7), or she asked and you confirmed.
  */
-export type LogSource = "user" | "processing" | "confirmed";
+export type LogSource = "user" | "processing" | "confirmed" | "kitsikai";
 
 /** A log entry: a sticker on a day. */
 export interface LogEntry {

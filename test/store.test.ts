@@ -78,6 +78,35 @@ describe("upgrading", () => {
     upgraded.close();
     store = new Store(":memory:");
   });
+
+  test("stickers survive the rebuild that lets her log them herself (migration 10)", () => {
+    store.close();
+    const path = join(dir.path, "old.db");
+    const db = new Database(path, { create: true, strict: true });
+    for (const step of MIGRATIONS.slice(0, 9)) typeof step === "string" ? db.exec(step) : step(db);
+    db.exec("PRAGMA user_version = 9");
+    db.query("INSERT INTO trackers (id, name, kind, hint_words, can_bring_up, position, created_at) VALUES ('t1', 'headache', 'scale', '[]', 1, 0, 'x')").run();
+    const insert = (id: string, source: string) =>
+      db.query(`INSERT INTO log_entries (id, tracker_id, date, value, source, created_at, updated_at) VALUES ('${id}', 't1', '2026-09-26', '6', '${source}', 'x', 'y')`).run();
+    insert("e1", "confirmed");
+    expect(() => insert("e2", "kitsikai")).toThrow(/CHECK/);
+    db.close();
+
+    const upgraded = openDatabase(path);
+    expect(upgraded.query("SELECT id, tracker_id, date, value, source, message_id, created_at, updated_at FROM log_entries").all()).toEqual([
+      { id: "e1", tracker_id: "t1", date: "2026-09-26", value: "6", source: "confirmed", message_id: null, created_at: "x", updated_at: "y" },
+    ]);
+    upgraded.query("INSERT INTO log_entries (id, tracker_id, date, value, source, created_at, updated_at) VALUES ('e2', 't1', '2026-09-27', '7', 'kitsikai', 'x', 'x')").run();
+    expect(upgraded.query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'log_entries' AND name NOT LIKE 'sqlite_%'").all()).toEqual([
+      { name: "log_entries_by_date" },
+    ]);
+    // Deleting a tracker still deletes its stickers.
+    upgraded.exec("PRAGMA foreign_keys = ON");
+    upgraded.query("DELETE FROM trackers WHERE id = 't1'").run();
+    expect(upgraded.query("SELECT COUNT(*) AS n FROM log_entries").get()).toEqual({ n: 0 });
+    upgraded.close();
+    store = new Store(":memory:");
+  });
 });
 
 describe("settings", () => {

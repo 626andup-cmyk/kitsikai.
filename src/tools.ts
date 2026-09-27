@@ -14,6 +14,13 @@
  * matters most for a chat imported from elsewhere (src/importer.ts): only
  * a channel's newest messages are in view.
  *
+ * Trackers, like you can: `make_tracker` makes one, and `log_sticker` and
+ * `remove_sticker` put stickers on days and take them off. Unlike her
+ * notes, these go straight in, the way yours do from the trackers channel,
+ * marked as hers ("She logged this herself"), and you can change or delete
+ * them like any sticker. Her pencil notes about the same tracker and day
+ * are settled at the same time, so processing doesn't log it twice.
+ *
  * Each tool is a name, a description the model reads, a JSON schema for its
  * arguments, and a `run` function. `runTool` checks the arguments, runs it,
  * and returns:
@@ -27,15 +34,16 @@
  * "Do nothing" is always there too: choosing not to reply is fine.
  */
 
-import { SOURCE_WORDS, dayName, describeEntry, describeOccurrence } from "./binder.ts";
+import { SOURCE_WORDS, dayName, describeEntry, describeOccurrence, stickerWords } from "./binder.ts";
 import { addDays, dateOf, daysBetween, isDate, type LocalDate } from "./dates.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
+import { checkValue } from "./trackers.ts";
 import type { ToolSpec } from "./nanogpt.ts";
 import { PLAN_KINDS } from "./planner.ts";
 import { formatClock } from "./prompt.ts";
 import type { Events } from "./events.ts";
 import type { Store } from "./store.ts";
-import type { Channel, PlanKind } from "./types.ts";
+import type { Channel, LogEntry, PlanKind, Tracker, TrackerKind } from "./types.ts";
 
 /** Where a tool runs: the channel of the turn, and the time. */
 export interface ToolContext {
@@ -112,6 +120,44 @@ function findTracker(store: Store, name: string) {
   const partial = trackers.filter((t) => norm(t.name).includes(wanted) || wanted.includes(norm(t.name)));
   if (partial.length === 1) return partial[0]!;
   throw new ToolError(`There's no tracker called "${name}". Trackers: ${trackers.map((t) => t.name).join(", ") || "(none)"}.`);
+}
+
+/** What each kind of tracker records, in words (for her, both ways). */
+const RECORDS: Record<TrackerKind, string> = { yesno: "yes or no", scale: "1 to 10", note: "a note" };
+/** Other ways a model might write what a tracker records. */
+const RECORDS_ALIASES: Record<string, TrackerKind> = { "yes/no": "yesno", yesno: "yesno", "1-10": "scale", scale: "scale", note: "note" };
+
+/** The id of your message this turn answers, if it's yours: where a sticker came from. */
+function yourLastMessageId(ctx: ToolContext): string | null {
+  const last = ctx.store.lastMessage(ctx.channel.id);
+  return last?.author === "user" ? last.id : null;
+}
+
+/**
+ * Her pencil notes about this tracker and day (from Jev's check of your
+ * messages) are settled: logged (`done`), or taken back with the sticker
+ * (`tossed`), so processing doesn't log them again.
+ */
+function settleNotes(ctx: ToolContext, trackerId: string, date: LocalDate, status: "done" | "tossed", reason: string): void {
+  const { store, now, events } = ctx;
+  const notes = store.memory.notes(["open", "asking"]).filter((n) => n.kind === "tracker" && n.trackerId === trackerId && n.date === date);
+  for (const note of notes) {
+    store.memory.updateNote(note.id, { status }, now);
+    store.memory.log({ runId: null, action: status === "done" ? "committed" : "tossed", text: note.text, reason, noteId: note.id, messageId: note.messageId }, now);
+  }
+  if (notes.length) events?.publish({ type: "memory" });
+}
+
+/** A day for a sticker: today unless she says, and never after today (stickers are what happened). */
+function stickerDay(args: Record<string, unknown>, now: Date): LocalDate {
+  const date = dateArg(maybe(args, "date"), now, "date") ?? dateOf(now);
+  if (date > dateOf(now)) throw new ToolError("Stickers are for what happened: pick today or a day before.");
+  return date;
+}
+
+/** The sticker for a tracker on a day, if there is one (the newest, if there are several). */
+function stickerOn(ctx: ToolContext, tracker: Tracker, date: LocalDate): LogEntry | undefined {
+  return ctx.store.trackers.entries({ trackerId: tracker.id, from: date, to: date })[0];
 }
 
 /** Find a channel by name (`#gaming` or `gaming`). */
@@ -202,7 +248,7 @@ const TOOLS: ToolDefinition[] = [
     run: ({ store }) => ({
       result: store.trackers.list().map((t) => ({
         name: t.name,
-        records: { yesno: "yes or no", scale: "1 to 10", note: "a note" }[t.kind],
+        records: RECORDS[t.kind],
         hint_words: t.hintWords,
         you_may_bring_it_up: t.canBringUp,
       })),
@@ -230,6 +276,114 @@ const TOOLS: ToolDefinition[] = [
           ? entries.map((e) => ({ entry: describeEntry(e, trackers.get(e.trackerId)), how: SOURCE_WORDS[e.source] }))
           : { note: "Nothing logged for that." },
         summary: `checked the ${tracker ? `${tracker.name} ` : ""}log${from || to ? ` for ${range(from ?? to!, to ?? from!)}` : ""}`,
+      };
+    },
+  },
+  {
+    name: "make_tracker",
+    description:
+      "Make a new tracker, when they ask you to keep track of something (or say yes when you offer). Check list_trackers first: if there's one for it already, use that.",
+    parameters: object(
+      {
+        name: str('Short, like "headache", "took meds" or "payday".'),
+        records: { type: "string", enum: Object.values(RECORDS), description: "What each day's sticker says: yes or no, how bad from 1 to 10, or a short note." },
+        hint_words: { type: "array", items: { type: "string" }, description: "Optional: a few words that tend to come up with it (\"migraine\", \"head hurts\")." },
+        may_bring_up: { type: "boolean", description: "Optional: false if they'd rather you log it quietly and never raise it yourself. Default true." },
+      },
+      ["name", "records"],
+    ),
+    run: ({ store, events }, args) => {
+      const name = maybe(args, "name");
+      if (!name) throw new ToolError('"name" is required.');
+      const records = norm(maybe(args, "records") ?? "");
+      const kind = (Object.keys(RECORDS) as TrackerKind[]).find((k) => RECORDS[k] === records) ?? RECORDS_ALIASES[records];
+      if (!kind) throw new ToolError(`"records" must be one of: ${Object.values(RECORDS).map((r) => `"${r}"`).join(", ")}.`);
+      if (args.hint_words !== undefined && !Array.isArray(args.hint_words)) throw new ToolError('"hint_words" must be a list of words.');
+      if (args.may_bring_up !== undefined && typeof args.may_bring_up !== "boolean") throw new ToolError('"may_bring_up" must be true or false.');
+      const same = store.trackers.list().find((t) => norm(t.name) === norm(name));
+      if (same) throw new ToolError(`There's already a tracker called "${same.name}" (${RECORDS[same.kind]}). Log to it with log_sticker.`);
+      const tracker = store.trackers.create({ name, kind, hintWords: args.hint_words ?? [], canBringUp: args.may_bring_up !== false });
+      events?.publish({ type: "log" });
+      return {
+        result: {
+          made: { name: tracker.name, records: RECORDS[tracker.kind], hint_words: tracker.hintWords, you_may_bring_it_up: tracker.canBringUp },
+          note: "It's in the trackers channel now. Put stickers on days with log_sticker.",
+        },
+        summary: `made a tracker: ${tracker.name} (${RECORDS[tracker.kind]})`,
+      };
+    },
+  },
+  {
+    name: "log_sticker",
+    description:
+      "Put a sticker on a day for one of their trackers: that it happened, how bad it was, or a note. Use it when they tell you, or ask you to log something. One sticker per tracker a day: logging the same tracker and day again changes it, for corrections.",
+    parameters: object(
+      {
+        tracker: str("The tracker's name."),
+        value: str('"yes" or "no", a number from 1 to 10, or a short note: whatever the tracker records.'),
+        date: str('Optional: the day, as YYYY-MM-DD, or "today" (the default) or "yesterday".'),
+      },
+      ["tracker", "value"],
+    ),
+    run: (ctx, args) => {
+      const { store, events } = ctx;
+      const name = maybe(args, "tracker");
+      if (!name) throw new ToolError('"tracker" is required.');
+      const tracker = findTracker(store, name);
+      const value = typeof args.value === "string" ? args.value.trim() : args.value;
+      if (value === undefined || value === null || value === "") throw new ToolError('"value" is required.');
+      const date = stickerDay(args, ctx.now);
+
+      const existing = stickerOn(ctx, tracker, date);
+      const by = { source: "kitsikai" as const, messageId: yourLastMessageId(ctx) };
+      let entry: LogEntry;
+      let verb: string;
+      let result: Record<string, unknown>;
+      if (existing && checkValue(tracker.kind, value) === existing.value) {
+        // Already there: nothing changes, not even whose it is.
+        entry = existing;
+        verb = "already had";
+        result = { already: describeEntry(entry, tracker) };
+      } else if (existing) {
+        entry = store.trackers.updateEntry(existing.id, { value }, by);
+        verb = "changed";
+        result = { changed: describeEntry(entry, tracker), was: existing.value };
+      } else {
+        entry = store.trackers.addEntry({ trackerId: tracker.id, date, value, ...by });
+        verb = "logged";
+        result = { logged: describeEntry(entry, tracker) };
+      }
+      settleNotes(ctx, tracker.id, date, "done", "you logged it yourself");
+      events?.publish({ type: "log" });
+      return { result, summary: `${verb} ${stickerWords(entry, tracker)} for ${dayName(date)}` };
+    },
+  },
+  {
+    name: "remove_sticker",
+    description:
+      "Take a tracker's sticker off a day, when they tell you it's wrong (\"I didn't take my meds after all\") or ask you to. Only then.",
+    parameters: object(
+      {
+        tracker: str("The tracker's name."),
+        date: str('Optional: the day, as YYYY-MM-DD, or "today" (the default) or "yesterday".'),
+      },
+      ["tracker"],
+    ),
+    run: (ctx, args) => {
+      const { store, events } = ctx;
+      const name = maybe(args, "tracker");
+      if (!name) throw new ToolError('"tracker" is required.');
+      const tracker = findTracker(store, name);
+      const date = stickerDay(args, ctx.now);
+      const entry = stickerOn(ctx, tracker, date);
+      if (!entry) throw new ToolError(`There's no ${tracker.name} sticker on ${dayName(date)}.`);
+      store.trackers.deleteEntry(entry.id);
+      settleNotes(ctx, tracker.id, date, "tossed", "you took the sticker off");
+      events?.publish({ type: "log" });
+      const left = stickerOn(ctx, tracker, date);
+      return {
+        result: { removed: describeEntry(entry, tracker), ...(left ? { still_there: describeEntry(left, tracker) } : {}) },
+        summary: `took off ${stickerWords(entry, tracker)} for ${dayName(date)}`,
       };
     },
   },

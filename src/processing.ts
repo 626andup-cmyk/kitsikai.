@@ -222,10 +222,17 @@ export class Processing {
           continue;
         }
         try {
-          store.trackers.addEntry({ trackerId: note.trackerId!, date: note.date!, value: note.value!, source: "processing", messageId: note.messageId });
+          // The same sticker may be there already (you logged it, or she did
+          // with her log_sticker tool): then there's nothing to add.
+          const already = store.trackers
+            .entries({ trackerId: note.trackerId!, from: note.date!, to: note.date! })
+            .some((e) => e.value === note.value);
+          if (!already) {
+            store.trackers.addEntry({ trackerId: note.trackerId!, date: note.date!, value: note.value!, source: "processing", messageId: note.messageId });
+          }
           this.memory.updateNote(note.id, { status: "done" }, now);
-          write({ action: "committed", text: note.text, reason: `${why}: in the log`, ...base });
-          changedLog = true;
+          write({ action: "committed", text: note.text, reason: already ? `${why}: already in the log` : `${why}: in the log`, ...base });
+          changedLog ||= !already;
         } catch (e) {
           this.memory.updateNote(note.id, { status: "tossed" }, now);
           write({ action: "error", text: note.text, reason: `couldn't be logged: ${(e as Error).message}`, ...base });

@@ -327,6 +327,24 @@ describe("processing", () => {
     expect(run.finishedAt).not.toBeNull();
   });
 
+  test("a sticker that's already there isn't logged twice", async () => {
+    const tracker = app.store.trackers.create({ name: "headache", kind: "scale" });
+    app.store.trackers.addEntry({ trackerId: tracker.id, date: "2026-09-26", value: 7, source: "kitsikai" });
+    const same = addNote({ kind: "tracker", text: "headache 7/10 on Sat, Sep 26", trackerId: tracker.id, value: "7", date: "2026-09-26" });
+    const other = addNote({ kind: "tracker", text: "headache 8/10 on Sat, Sep 26", trackerId: tracker.id, value: "8", date: "2026-09-26" });
+    const events = listen();
+    fake.jevReplies.push({ n1: "yes", n2: "yes" });
+    const { log } = await process();
+    expect(memory().getNote(same.id).status).toBe("done");
+    expect(memory().getNote(other.id).status).toBe("done");
+    expect(log.map((e) => e.reason)).toEqual(["still true, 95% sure: already in the log", "still true, 95% sure: in the log"]);
+    expect(app.store.trackers.entries().map((e) => [e.value, e.source])).toEqual([
+      ["8", "processing"],
+      ["7", "kitsikai"],
+    ]);
+    expect(events).toContainEqual({ type: "log" });
+  });
+
   test("wrong or taken back: tossed. Unsure: she asks", async () => {
     const tracker = app.store.trackers.create({ name: "headache", kind: "scale" });
     const wrong = addNote({ kind: "tracker", text: "headache 3/10 on Sat, Sep 26", trackerId: tracker.id, value: "3", date: "2026-09-26" });

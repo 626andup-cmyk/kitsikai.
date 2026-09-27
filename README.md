@@ -13,7 +13,7 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
   - **Shifts** are regular (with draw hours), meetings, or on-call. Draw time is always calculated from the draw hours. **Linked shifts**: tick "🏨 Overnight after this shift" for a hotel night between shifts, and she knows you're away. The weekly list shows every shift with all its fields, day totals on double-booked days, and week totals.
   - **Import a screenshot** of your work schedule: a vision model reads the shifts, you check them in a review list beside the screenshot (⚠️ warnings point out likely misreads, but never stop you), and they're saved as confirmed shifts.
   - **Reminders**: each kind has defaults (a birthday: a week before and the morning of), changeable per plan. A reminder that would land during work moves to before it. (She'll send them from stage 8.)
-- **The 📈 trackers channel**: things for her to keep an eye out for (a headache, your meds, payday), each recording yes/no, a 1–10 scale, or a note, with your own hint words and whether she may bring it up. Log a **sticker** for a day in one tap; see the last two weeks at a glance; stickers also show on calendar days.
+- **The 📈 trackers channel**: things for her to keep an eye out for (a headache, your meds, payday), each recording yes/no, a 1–10 scale, or a note, with your own hint words and whether she may bring it up. Log a **sticker** for a day in one tap; see the last two weeks at a glance; stickers also show on calendar days. **She can too**: tell her to keep track of something and she makes the tracker; tell her how it went and she puts the sticker on the day, or fixes it (if her profile can use tools).
 - **Channels**: create, rename, reorder and delete them. Each can have a **topic** (she sees it), and one is the **home channel**. She's one person across all of them.
 - **She knows your day**: today's and tomorrow's plans, and whether you're at work, are always in front of her. Anything further (next week's shifts, the headache log, another channel) she **looks up with tools** when it comes up, if her profile can use tools. What she looked up shows under her reply ("⚙ Kitsikai looked up plans for Oct 5–11"), and each channel has a **tool log**.
 - **Her memory**: a fast decision model, **Jev**, reads each of your messages against your trackers and for plans, things worth remembering, and requests ("pin that"). What it notices goes on her **scratchpad** in pencil; every few hours she **processes** it: what's clearly true goes into the log, what's wrong is tossed, and she asks about anything she's unsure of. A plan from chat only goes into the planner once you say yes. Correct her just by talking ("wait no, it's Friday").
@@ -98,7 +98,7 @@ src/
   replies.ts   Waiting a few seconds after your last bubble before she replies
   events.ts    The events stream: telling the app what happened, as it happens
   bubbles.ts   Splitting her replies into bubbles on <cht>
-  tools.ts     Her tools: looking things up in the binder, and jotting notes
+  tools.ts     Her tools: looking things up in the binder, keeping your trackers, and jotting notes
   jev.ts       Jev, the decision model: questions, answers, confidence tiers, the fallback
   scratchpad.ts  Jev's check of your messages during chat: new notes, corrections, your yes
   processing.ts  Processing her notes every few hours: pencil to pen, and her pins

@@ -14,6 +14,8 @@
  * In this stage you add them yourself, in the trackers channel or on a
  * calendar day. From stage 7, she notices things in chat and adds them too
  * (after checking), and each entry remembers the message it came from.
+ * Later still, she can make trackers and put stickers on days with her
+ * tools, like you (src/tools.ts).
  *
  * The new concept is **user-defined data**: the app doesn't know in advance
  * what you'll track, so the values have to be checked against the rules of
@@ -26,7 +28,7 @@ import { NotFoundError, ValidationError } from "./errors.ts";
 import type { LogEntry, LogSource, Tracker, TrackerKind } from "./types.ts";
 
 export const TRACKER_KINDS: TrackerKind[] = ["yesno", "scale", "note"];
-export const LOG_SOURCES: LogSource[] = ["user", "processing", "confirmed"];
+export const LOG_SOURCES: LogSource[] = ["user", "processing", "confirmed", "kitsikai"];
 
 const MAX_HINT_WORDS = 20;
 const MAX_NOTE = 1000;
@@ -238,7 +240,7 @@ export class Trackers {
     const tracker = this.get(input.trackerId);
     if (!isDate(input.date)) throw new ValidationError("date must be a date like 2026-09-28");
     const source = input.source ?? "user";
-    if (!LOG_SOURCES.includes(source)) throw new ValidationError("source must be user, processing or confirmed");
+    if (!LOG_SOURCES.includes(source)) throw new ValidationError(`source must be one of: ${LOG_SOURCES.join(", ")}`);
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     this.db
@@ -258,16 +260,27 @@ export class Trackers {
     return this.getEntry(id);
   }
 
-  /** Change an entry's day or value. */
-  updateEntry(id: string, input: Record<string, unknown>): LogEntry {
+  /**
+   * Change an entry's day or value. `by` is who changed it, when that's not
+   * you (her log_sticker tool): the sticker then says she did, and links to
+   * the message she changed it for.
+   */
+  updateEntry(id: string, input: Record<string, unknown>, by?: { source: LogSource; messageId: string | null }): LogEntry {
     const entry = this.getEntry(id);
     const tracker = this.get(entry.trackerId);
     const date = input.date === undefined ? entry.date : input.date;
     if (!isDate(date)) throw new ValidationError("date must be a date like 2026-09-28");
     const value = input.value === undefined ? entry.value : checkValue(tracker.kind, input.value);
     this.db
-      .query("UPDATE log_entries SET date = $date, value = $value, updated_at = $now WHERE id = $id")
-      .run({ id, date, value, now: new Date().toISOString() });
+      .query("UPDATE log_entries SET date = $date, value = $value, source = $source, message_id = $messageId, updated_at = $now WHERE id = $id")
+      .run({
+        id,
+        date,
+        value,
+        source: by?.source ?? entry.source,
+        messageId: by ? by.messageId : entry.messageId,
+        now: new Date().toISOString(),
+      });
     return this.getEntry(id);
   }
 

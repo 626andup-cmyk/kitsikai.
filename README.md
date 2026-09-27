@@ -27,7 +27,7 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, texting first (on or off, how often she checks, the double-text cap), notifications (and whether they show what she said), intimacy registers (on or off), how many recent messages she sees, how long she waits before replying, and how fast she "types".
+- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**, and a **Jev log** of every call from the last 36 hours, exactly as sent and received) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, texting first (on or off, how often she checks, the double-text cap), notifications (and whether they show what she said), intimacy registers (on or off), how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -100,6 +100,7 @@ src/
   bubbles.ts   Splitting her replies into bubbles on <cht>
   tools.ts     Her tools: looking things up in the binder, keeping your trackers, and jotting notes
   jev.ts       Jev, the decision model: questions, answers, confidence tiers, the fallback
+  jevlog.ts    The Jev log: every call from the last 36 hours, exactly as sent and received
   scratchpad.ts  Jev's check of your messages during chat: new notes, corrections, your yes
   processing.ts  Processing her notes every few hours: pencil to pen, and her pins
   scheduler.ts What runs on a timer: processing her notes, and her snapshot check
@@ -140,7 +141,7 @@ docs/          How things work, stage by stage, and the theme reference
 
 Everything is tested against a fake nanoGPT (`bun test`), but a few things can only be answered on your phone, with your real key. They're DESIGN.md's open questions. Here's what to try, and what to tell Claude (or check yourself) afterwards:
 
-1. **Is Jev reachable, and does Kitsikai understand it?** Settings → **Test Jev**. "It's working" means yes. Anything else: copy the message and the **raw reply** shown under it. The request format lives in `jevRequestBody` and the reading in `readAnswers` (`src/jev.ts`), so a mismatch is a small fix. Until then, set **If Jev can't answer, ask** to a profile, so her memory and texting first keep working.
+1. **Is Jev reachable, and does Kitsikai understand it?** Settings → **Test Jev**. "It's working" means yes. Anything else: copy the message and the **raw reply** shown under it. Later, if a decision looks wrong (a note that wasn't made, the wrong register), **Jev log** (next to Test Jev) shows exactly what Jev was asked and what it said; **Copy as text** to share it. The request format lives in `jevRequestBody` and the reading in `readAnswers` (`src/jev.ts`), so a mismatch is a small fix. Until then, set **If Jev can't answer, ask** to a profile, so her memory and texting first keep working.
 2. **Bubbles:** chat for a bit. Does she split her replies into several bubbles (the model writing `<cht>` between them)? If one model never does, note which: its profile's **model notes** can remind it.
 3. **Tools:** for each profile, **Test tools**. Then ask about next week ("what am I working next week?") and see whether "⚙ Kitsikai looked up plans…" appears under her reply. Channel settings → **Tool log** shows anything that went wrong.
 4. **Screenshots:** in the 📅 planner, import a screenshot of your schedule, with a vision profile set in Settings. How many rows needed fixing? Which model read it best?

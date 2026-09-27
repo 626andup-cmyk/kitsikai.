@@ -195,7 +195,7 @@ export class Processing {
         question: `Should pin ${id} come down now? Only yes if its "unpin when" has clearly happened, or it clearly no longer matters.`,
       });
     }
-    const answers: Answers = questions.length ? await decider.ask(state, questions) : new Map();
+    const answers: Answers = questions.length ? await decider.ask(state, questions, { purpose: "Processing" }) : new Map();
     const read = (id: string, note?: Note): Tier => (note?.confirmed ? "yes" : tier(answers.get(id), threshold));
     const sure = (id: string, option = "yes") => `${percent(probabilityOf(answers.get(id), option))} sure`;
 
@@ -369,6 +369,7 @@ export class Processing {
           .map(([id, p]) => `- ${id}: ${describePin(p)}`)
           .join("\n")}`,
         [{ id: "drop", kind: "choice", question: "Which matters least right now, and should come down?", options: [...ids.keys(), "the new one"] }],
+        { purpose: "Processing: which pin comes down" },
       );
       pick = confidentChoice(answers.get("drop"), threshold);
     } catch {

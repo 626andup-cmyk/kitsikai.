@@ -165,7 +165,7 @@ export async function detectRegister(
   };
 
   try {
-    const answers = await decider.ask(state, [question], signal);
+    const answers = await decider.ask(state, [question], { signal, purpose: "Intimacy register" });
     if (signal?.aborted) return { register: "warm", reason: "stopped", probabilities: null };
     const answer = answers.get("register");
     if (!answer) return { register: "warm", reason: "Jev returned no answer", probabilities: null };
@@ -251,7 +251,7 @@ async function bringsHerBack(decider: Decider, settings: Settings, messages: Mes
     const answers = await decider.ask(
       state,
       [{ id: "back", kind: "yesno", question: `Are they clearly inviting ${settings.name} back: saying they're okay now, and want her to be herself with them again?` }],
-      signal,
+      { signal, purpose: "After the safeword: bringing her back?" },
     );
     return probabilityOf(answers.get("back"), "yes") >= Math.max(LIFT_CONFIDENCE, settings.decisionConfidence);
   } catch {

@@ -76,6 +76,139 @@ async function testJevButton() {
   }
 }
 
+// ------------------------------------------------------------- Jev log
+
+/** Every Jev call from the last 36 hours (src/jevlog.ts), newest first. */
+let jevCalls = [];
+
+async function openJevLog() {
+  hideFormError($("jev-log-dialog"));
+  await loadJevLog();
+  if (!$("jev-log-dialog").open) $("jev-log-dialog").showModal();
+}
+
+async function loadJevLog() {
+  $("jev-log-copy").textContent = "Copy as text";
+  try {
+    const { calls, hours } = await api("GET", "/api/jev/log");
+    jevCalls = calls;
+    const errors = calls.filter((c) => c.error !== null).length;
+    $("jev-log-count").textContent =
+      `${calls.length} call${calls.length === 1 ? "" : "s"} to Jev in the last ${hours} hours${errors ? `, ${errors} with an error` : ""}, newest first, ` +
+      "exactly as sent and received. Older calls are deleted as new ones come in.";
+    renderJevLog();
+  } catch (error) {
+    showFormError($("jev-log-dialog"), error.message);
+  }
+}
+
+function renderJevLog() {
+  const errorsOnly = $("jev-log-errors").checked;
+  const calls = jevCalls.filter((c) => !errorsOnly || c.error !== null);
+  const list = $("jev-log-list");
+  if (calls.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "hint";
+    empty.textContent = errorsOnly ? "No errors." : "Jev hasn't been asked anything in the last 36 hours.";
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(...calls.map(renderJevCall));
+}
+
+/** How a call ended: "ok", "fallback" (Jev failed, the fallback answered), or "error". */
+function jevStatus(call) {
+  if (call.answeredBy === "jev") return "ok";
+  return call.answeredBy === "fallback" ? "fallback" : "error";
+}
+
+/** A labelled block of text, for one part of a call. */
+function jevBlock(label, text) {
+  const block = document.createElement("div");
+  block.className = "jev-call-part";
+  const title = document.createElement("p");
+  title.className = "hint";
+  title.textContent = label;
+  const pre = document.createElement("pre");
+  pre.textContent = text || "(nothing)";
+  block.append(title, pre);
+  return block;
+}
+
+/** What the state was: the text Jev (or the fallback) was given. */
+function jevState(call) {
+  return call.request?.messages?.[0]?.content ?? call.fallback?.messages?.at(-1)?.content ?? "";
+}
+
+/** One call: what asked, how it went, and everything sent and received. */
+function renderJevCall(call) {
+  const item = document.createElement("li");
+  item.className = "tool-call jev-call";
+  const status = jevStatus(call);
+  item.dataset.status = status === "error" ? "error" : "ok";
+  item.dataset.answeredBy = call.answeredBy ?? "nobody";
+
+  const head = document.createElement("div");
+  head.className = "tool-call-head";
+  const name = document.createElement("strong");
+  name.className = "tool-call-name";
+  name.textContent = call.purpose;
+  head.append(name, badge({ ok: "Jev", fallback: `fallback: ${call.fallback?.profile ?? "?"}`, error: "no answer" }[status]));
+  if (call.model) head.append(badge(call.model));
+  head.append(badge(`${(call.durationMs / 1000).toFixed(1)}s`));
+  const time = document.createElement("time");
+  time.className = "message-time";
+  time.dateTime = call.at;
+  time.textContent = formatTime(call.at);
+  head.append(time);
+
+  const summary = document.createElement("p");
+  summary.className = "tool-call-summary";
+  summary.textContent = [call.error ? `⚠️ ${call.error}` : "", call.summary].filter(Boolean).join(" · ") || "(no answers)";
+
+  const details = document.createElement("details");
+  details.className = "tool-call-raw";
+  const label = document.createElement("summary");
+  label.textContent = "What it was told, and the reply";
+  details.append(label, jevBlock("What it was told", jevState(call)));
+  if (call.request) {
+    details.append(jevBlock("The request, exactly as sent", JSON.stringify(call.request, null, 2)));
+    details.append(jevBlock("Jev's reply, exactly as received", prettyJson(call.response)));
+  }
+  if (call.fallback) {
+    const f = call.fallback;
+    details.append(jevBlock(`The fallback (${f.profile}, ${f.model}): what it was sent`, JSON.stringify(f.messages, null, 2)));
+    details.append(jevBlock("The fallback's reply", f.error ? `${f.response}\n\n⚠️ ${f.error}`.trim() : f.response));
+  }
+  item.append(head, summary, details);
+  return item;
+}
+
+/** The whole log as plain text, e.g. to share when something goes wrong. */
+async function copyJevLog() {
+  const text = jevCalls
+    .map((c) =>
+      [
+        `${c.at}  ${c.purpose}  ${c.model || "(Jev off)"}  ${c.answeredBy ?? "no answer"}  ${(c.durationMs / 1000).toFixed(1)}s`,
+        c.error ? `error: ${c.error}` : null,
+        c.summary ? `answers: ${c.summary}` : null,
+        c.request ? `request: ${JSON.stringify(c.request)}` : null,
+        c.request ? `reply: ${c.response}` : null,
+        c.fallback ? `fallback (${c.fallback.profile}, ${c.fallback.model}): ${JSON.stringify(c.fallback.messages)}` : null,
+        c.fallback ? `fallback reply: ${c.fallback.response}${c.fallback.error ? ` (error: ${c.fallback.error})` : ""}` : null,
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
+    )
+    .join("\n\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    $("jev-log-copy").textContent = "Copied";
+  } catch {
+    showFormError($("jev-log-dialog"), "Couldn't copy: your browser didn't allow it.");
+  }
+}
+
 // ------------------------------------------------------------ the page
 
 async function openNotes() {
@@ -361,6 +494,10 @@ async function checkNow() {
 // ------------------------------------------------------------- wiring
 
 $("test-jev").addEventListener("click", testJevButton);
+$("open-jev-log").addEventListener("click", openJevLog);
+$("jev-log-errors").addEventListener("change", renderJevLog);
+$("jev-log-refresh").addEventListener("click", loadJevLog);
+$("jev-log-copy").addEventListener("click", copyJevLog);
 $("open-notes").addEventListener("click", openNotes);
 $("process-now").addEventListener("click", processNow);
 $("check-now").addEventListener("click", checkNow);

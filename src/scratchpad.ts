@@ -265,7 +265,7 @@ export class Scratchpad {
       ? `\n\n${onCall.calledIn ? `They got called in to their on-call shift (until ${formatClock(onCall.end)}).` : `They're on call right now, until ${formatClock(onCall.end)}: free unless they get called in.`}`
       : "";
 
-    const answers = await decider.ask(state + onCallState, questions, signal);
+    const answers = await decider.ask(state + onCallState, questions, { signal, purpose: "Scratchpad check" });
     if (signal.aborted) throw new CancelledError();
     const changes = await this.apply({ answers, threshold, state, trackers, noteIds, askIds, fresh, channelId, now, today, signal, api });
     if (onCall) changes.push(...this.applyOnCall(onCall, answers, threshold, fresh.at(-1)!.id));

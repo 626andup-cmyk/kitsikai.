@@ -64,6 +64,7 @@ When this stage was built, TypeSafe's documentation couldn't be reached, and nan
 
 - **The exact request is in one function**, `jevRequestBody`, and the reply is read forgivingly by `readAnswers` (a list or an object by question id, the pick as `selected`/`answer`/`choice`, probabilities as an object or a list, and more). If a live test shows the format differs, only those two change.
 - **Settings → Test Jev** asks one tiny question with an obvious answer ("they just got a puppy: did they get a pet?") and shows what happened, with the **raw reply**, so a format mismatch is easy to see.
+- **Settings → Jev log** (added later) shows every call to Jev from the last 36 hours, newest first. For each call it shows what asked (Scratchpad check, Processing, Texting first, Intimacy register...), who answered (Jev, the fallback, or nobody), how long it took, and the answers in short ("t1: yes (95%)"). Open a call to see what Jev was told, the request **exactly as sent**, and the reply **exactly as received**, plus the fallback's request and reply if it was asked. "Errors only" and "Copy as text" are for troubleshooting. It's a rolling log (`src/jevlog.ts`, `jev_log` table, migration 11): calls older than 36 hours are deleted whenever one is added or the log is read. Like everything else, it stays on your phone, but it does hold what Jev was shown, which includes your recent messages.
 - **A fallback profile** (Settings → "If Jev can't answer, ask"): a normal profile that's asked the same questions and told to answer in JSON with a probability. Slower and less calibrated, but her memory keeps working.
 - **Empty model** turns Jev off: the fallback answers everything, or, with no fallback, nothing is noticed or processed (she still chats normally).
 
@@ -223,7 +224,7 @@ Migration 6 (`src/db.ts`) adds five tables:
 
 ## Tests
 
-- `test/jev.test.ts`: the request's shape; reading answers in every layout it accepts, and dropping ones that don't fit; the three tiers at the threshold; asking the fake Jev, errors, the fallback profile, Jev turned off; Test Jev.
+- `test/jev.test.ts`: the request's shape; reading answers in every layout it accepts, and dropping ones that don't fit; the three tiers at the threshold; asking the fake Jev, errors, the fallback profile, Jev turned off; Test Jev; the Jev log's record of every call (Jev, errors with the full reply, the fallback, Jev off, stopped calls, a log that can't be written). `test/jevlog.test.ts`: the rolling 36 hours, and `GET /api/jev/log`.
 - `test/memory.test.ts`: the check (tracker hits with hint words, yesterday, scale and note values, each message checked once, rewrites, plans with their cards, time-sensitive notes, the writer failing, taking back and changing notes, your yes and no, Jev unreachable or off, stopping mid-check); processing (every row of the table above, plans that are already planned or undated, pins by date and by Jev, the cap, your pin and unpin requests, settled things, note age, early rounds, unanswered questions, Jev failing, one round at a time); the scheduler; the prompt section; the tools; the API; and the new settings.
 - `test/ui.test.ts`: memory settings and Test Jev; the advanced page end to end (a note from chat, Process now, the log's "show the message").
 

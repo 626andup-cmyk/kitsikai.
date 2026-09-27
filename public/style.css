@@ -1378,6 +1378,16 @@ button:disabled {
   width: min(820px, 100vw - 24px);
 }
 
+/* The Jev log: each part of a call (what it was told, the request, the reply) under a small label. */
+.jev-call-part > .hint {
+  margin: 10px 0 0;
+}
+
+/* Jev failed, but the fallback profile answered: not an error, but worth a look. */
+.jev-call[data-answered-by="fallback"] .tool-call-summary {
+  color: var(--error-text);
+}
+
 .tool-log-actions {
   align-items: center;
   margin-top: 8px;

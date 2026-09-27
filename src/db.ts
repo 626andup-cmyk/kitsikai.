@@ -422,6 +422,32 @@ export const MIGRATIONS: Migration[] = [
   ALTER TABLE log_entries_new RENAME TO log_entries;
   CREATE INDEX log_entries_by_date ON log_entries (date);
   `,
+
+  // ---------------------------------------------------------------- 11
+  // The Jev log (src/jevlog.ts): every call to Jev from the last 36 hours,
+  // exactly as sent and received. Older rows are deleted as new ones come.
+  `
+  CREATE TABLE jev_log (
+    id          TEXT PRIMARY KEY,
+    at          TEXT NOT NULL,
+    -- What asked: "Scratchpad check", "Processing", "Intimacy register"...
+    purpose     TEXT NOT NULL,
+    model       TEXT NOT NULL,
+    -- The request body sent to Jev, as JSON; NULL if Jev wasn't asked (turned off).
+    request     TEXT,
+    -- Jev's reply, exactly as it came back ('' if there wasn't one).
+    response    TEXT NOT NULL,
+    error       TEXT,
+    -- 'jev', 'fallback', or NULL when nobody answered.
+    answered_by TEXT CHECK (answered_by IN ('jev', 'fallback')),
+    -- The answers in short: "t1: yes (95%), plan: no (90%)".
+    summary     TEXT NOT NULL,
+    -- The fallback profile's request and reply, as JSON, when it was asked.
+    fallback    TEXT,
+    duration_ms INTEGER NOT NULL
+  );
+  CREATE INDEX jev_log_by_time ON jev_log (at);
+  `,
 ];
 
 /** How many prepared queries to keep, at most (the app has a few hundred). */

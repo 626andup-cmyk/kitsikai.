@@ -750,8 +750,12 @@ textarea {
   }
 }
 
-/* "Kitsikai has been updated. [Reload]" at the top of the channel. */
-.update-banner {
+/*
+ * "Kitsikai has been updated. [Reload]" at the top of the channel, and
+ * "Safeword heard... [Bring her back]" above the composer.
+ */
+.update-banner,
+.hold-banner {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -761,8 +765,35 @@ textarea {
   font-size: 14px;
 }
 
-.update-banner > span {
+.update-banner > span,
+.hold-banner > span {
   flex: 1;
+}
+
+.hold-banner {
+  padding: 6px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+/* "Bring her back": easy to find, like "Stop". */
+.hold-banner .link-button {
+  padding: 6px 4px;
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* The hold's status in Settings → Intimacy. */
+.hold-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.hold-status > p {
+  flex: 1;
+  margin: 0;
 }
 
 /* "Stop" next to "Arlo is writing…". Brighter than other link buttons, so it's easy to find. */

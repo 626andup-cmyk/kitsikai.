@@ -44,6 +44,14 @@ describe("a new database", () => {
     expect(() => new Store(dir.path)).toThrow(/newer version of Kitsikai/);
     store = new Store(":memory:");
   });
+
+  test("closes all the way, however many queries it has run (Bun alone keeps only 20)", () => {
+    const db = openDatabase(join(dir.path, "many.db"));
+    for (let i = 0; i < 50; i++) db.query(`SELECT ${i} AS n`).get();
+    expect(db.query("SELECT 7 AS n").get()).toEqual({ n: 7 });
+    // Throws "database is locked" if any query was left open.
+    expect(() => db.close(true)).not.toThrow();
+  });
 });
 
 describe("upgrading", () => {

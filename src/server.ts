@@ -65,6 +65,7 @@
  *   GET    /api/proactive                 Texting first: due reminders, what her checks decided, what's next
  *   POST   /api/proactive/check           Run her snapshot check now ("Check now", for testing)
  *   POST   /api/presence                  The app says whether it's on screen (for notifications)
+ *   POST   /api/intimacy/lift             "Bring her back": end the safeword hold
  *
  *   GET    /api/messages/:id              One message (to show where a log entry came from)
  *   PATCH  /api/messages/:id              Edit a message's text
@@ -105,6 +106,7 @@ import { Scheduler } from "./scheduler.ts";
 import { Scratchpad } from "./scratchpad.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { Proactive } from "./proactive.ts";
+import { registerPrompt } from "./intimacy.ts";
 import { CatchUp } from "./catchup.ts";
 import { ImportError, importChat, MAX_IMPORT_CHARS, parseChat, previewOf, type ImportTarget } from "./importer.ts";
 import { dueReminders } from "./reminders.ts";
@@ -246,8 +248,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     timeoutMs: config.requestTimeoutMs,
   };
   const events = new Events();
-  const kitsikai = new Kitsikai(store, api, now, events);
-  // Stage 7: Jev, and what it decides.
+  // Stage 7: Jev, and what it decides. Created before Kitsikai so it can be
+  // passed to her constructor for the intimacy register check.
   const decider = new Decider(api, () => {
     const settings = store.getSettings();
     let fallback: Profile | null = null;
@@ -260,6 +262,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
     return { decisionModel: settings.decisionModel, fallback };
   });
+  const kitsikai = new Kitsikai(store, api, now, events, decider);
   const scratchpad = new Scratchpad({ store, api, decider, events, clock: now });
   const processing = new Processing({ store, api, decider, events, clock: now });
   const replies = new Replies(store, kitsikai, events, scratchpad);
@@ -290,7 +293,9 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     if (!settings.notifications || presence.isVisible(events.connections) || !notifier.available()) return;
     try {
       const channel = store.getChannel(event.channelId);
-      notifier.notify({ title: `${settings.name} in #${channel.name}`, text: hers.map((m) => m.content).join("\n"), channelId: channel.id });
+      // Without a preview, only that there's a message: for a lock screen others can see.
+      const text = settings.notificationPreview ? hers.map((m) => m.content).join("\n") : "New message";
+      notifier.notify({ title: `${settings.name} in #${channel.name}`, text, channelId: channel.id });
     } catch {
       // The channel was deleted meanwhile: nothing to notify about.
     }
@@ -350,6 +355,8 @@ export function createApp(config: Config, options: AppOptions = {}): App {
           planner: { defaultReminders: DEFAULT_REMINDERS, reminderLabels: REMINDER_LABELS },
           // Whether this device can post notifications (Termux:API).
           notificationsAvailable: notifier.available(),
+          // The safeword hold, while it's on (src/intimacy.ts).
+          intimacyHold: store.intimacy.get(),
         }),
     },
     {
@@ -521,7 +528,10 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         // roulette would pick first.
         const profileId = new URL(request.url).searchParams.get("profile");
         const profile = profileId ? store.profiles.get(profileId) : pickProfile(store, store.getChannel(id!), 0);
-        return json({ messages: promptForChannel(store, id!, { profile, now: now() }), profile });
+        // The intimacy register is Jev's call at turn time, so the preview
+        // can't show it; a safeword hold it can.
+        const registerText = store.intimacy.get() ? registerPrompt("safe") : "";
+        return json({ messages: promptForChannel(store, id!, { profile, now: now(), registerPrompt: registerText }), profile });
       },
     },
 
@@ -779,6 +789,18 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       method: "POST",
       pattern: "/api/proactive/check",
       handler: async () => json({ check: await proactive.check("manual") }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/intimacy/lift",
+      // "Bring her back" (the banner, or Settings): ends the safeword hold.
+      handler: () => {
+        if (store.intimacy.get()) {
+          store.intimacy.lift();
+          events.publish({ type: "hold", hold: null });
+        }
+        return json({ intimacyHold: null });
+      },
     },
     {
       method: "POST",

@@ -20,6 +20,7 @@ import { join, resolve } from "node:path";
 import { ToolLog } from "./activity.ts";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
+import { IntimacyHold } from "./hold.ts";
 import { Memory } from "./memory.ts";
 import { ProactiveLog, Reminders } from "./reminders.ts";
 import { Plans } from "./planner.ts";
@@ -72,6 +73,8 @@ export function defaultSettings(): Settings {
     snapshotMinutes: 10,
     doubleTextCap: "judge",
     notifications: true,
+    notificationPreview: true,
+    intimacyEnabled: true,
   };
 }
 
@@ -157,6 +160,8 @@ export function validateSettings(input: unknown): Partial<Settings> {
     clean.doubleTextCap = raw.doubleTextCap;
   }
   if (raw.notifications !== undefined) clean.notifications = bool(raw.notifications, "notifications");
+  if (raw.notificationPreview !== undefined) clean.notificationPreview = bool(raw.notificationPreview, "notificationPreview");
+  if (raw.intimacyEnabled !== undefined) clean.intimacyEnabled = bool(raw.intimacyEnabled, "intimacyEnabled");
 
   return clean;
 }
@@ -400,6 +405,8 @@ export class Store {
   readonly reminders: Reminders;
   /** What her snapshot checks decided (see `src/proactive.ts`). */
   readonly proactiveLog: ProactiveLog;
+  /** The safeword hold (see `src/hold.ts`, `src/intimacy.ts`). */
+  readonly intimacy: IntimacyHold;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -429,6 +436,7 @@ export class Store {
     this.memory = new Memory(this.db);
     this.reminders = new Reminders(this.db);
     this.proactiveLog = new ProactiveLog(this.db);
+    this.intimacy = new IntimacyHold(this.db);
 
     if (isNew) this.seed();
   }
@@ -443,9 +451,12 @@ export class Store {
     })();
   }
 
-  /** Close the database. Only needed in tests, which open many. */
+  /**
+   * Close the database. Only needed in tests, which open many. Fails loudly
+   * if anything was left open (see `KitsikaiDatabase` in src/db.ts).
+   */
   close(): void {
-    this.db.close();
+    this.db.close(true);
   }
 
   // -------------------------------------------------------------- settings

@@ -24,6 +24,7 @@
  * instead of trusting that it saw every event.
  */
 
+import type { Hold } from "./hold.ts";
 import type { Channel, Message, ToolCallRecord } from "./types.ts";
 
 /** Everything the server announces. */
@@ -46,7 +47,9 @@ export type ServerEvent =
   /** Trackers or log entries changed. */
   | { type: "log" }
   /** Her notes, pins or processing log changed (stage 7: the advanced page reloads). */
-  | { type: "memory" };
+  | { type: "memory" }
+  /** The safeword hold started (`hold`) or ended (`null`); see src/intimacy.ts. */
+  | { type: "hold"; hold: Hold | null };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

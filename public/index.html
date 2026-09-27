@@ -245,6 +245,15 @@
             <button id="stop-button" type="button" class="link-button stop-button">Stop</button>
           </div>
 
+          <!--
+            Shown while the safeword hold is on (src/intimacy.ts): she stays
+            plain and warm until you bring her back, by telling her or here.
+          -->
+          <div id="hold-banner" class="hold-banner" role="status" hidden>
+            <span>Safeword heard: she's holding until you bring her back.</span>
+            <button id="hold-lift" type="button" class="link-button">Bring her back</button>
+          </div>
+
           <!-- Shown when something went wrong, e.g. the model didn't answer. -->
           <div id="error" class="error-banner" role="alert" hidden>
             <span id="error-text"></span>
@@ -411,6 +420,33 @@
             ></span
           >
         </label>
+        <label class="check-option">
+          <input type="checkbox" name="notificationPreview" id="setting-notification-preview" />
+          <span
+            ><strong>Show what she said in notifications</strong><br /><span class="hint"
+              >Off: a notification only says there's a new message, for a lock screen other people can see.</span
+            ></span
+          >
+        </label>
+
+        <h3 class="section-title">Intimacy</h3>
+        <label class="check-option">
+          <input type="checkbox" name="intimacyEnabled" id="setting-intimacy" />
+          <span
+            ><strong>Intimacy registers</strong><br /><span class="hint"
+              >Before each of her turns, Jev reads the mood and picks which mode from the persona's [INTIMACY] section
+              she's in. Off: the persona alone, always. The safeword works either way.</span
+            ></span
+          >
+        </label>
+        <p class="hint">
+          The safeword is "seriously". Say it, and everything stops: she stays plain and warm, and only texts first for
+          reminders, until you bring her back, by telling her you're okay or with the button below.
+        </p>
+        <div id="hold-status" class="hold-status" hidden>
+          <p id="hold-status-text"></p>
+          <button type="button" class="button" id="hold-status-lift">Bring her back</button>
+        </div>
 
         <h3 class="section-title">Advanced</h3>
         <label class="check-option">

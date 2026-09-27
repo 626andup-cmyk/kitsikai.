@@ -28,6 +28,8 @@
  *   it's been quiet for 2 hours. Nothing but reminders before you've ever
  *   texted her.
  * - No check while she's writing or waiting to reply somewhere.
+ * - After the safeword, only reminders, until you bring her back
+ *   (src/intimacy.ts).
  *
  * ## Picking the channel
  *
@@ -181,8 +183,12 @@ export class Proactive {
     const snap = this.snapshot(now, channels);
     const cap = settings.doubleTextCap;
     const wall = cap !== "judge" && snap.inARow >= cap;
-    // Before you've ever texted her, only reminders: she doesn't start the friendship.
-    const others = !wall && snap.yourLast !== null && snap.quietMinutes >= MIN_QUIET_MINUTES;
+    // Before you've ever texted her, only reminders: she doesn't start the
+    // friendship. And after the safeword, only reminders, until you bring her
+    // back (src/intimacy.ts); her turn is in the "safe" register, so they go
+    // out plain.
+    const held = store.intimacy.get() !== null;
+    const others = !wall && !held && snap.yourLast !== null && snap.quietMinutes >= MIN_QUIET_MINUTES;
     const askQuiet = others && snap.quietMinutes >= JUST_BECAUSE_HOURS * 60;
     const askAgain = others && cap === "judge" && snap.inARow >= 1;
 
@@ -222,7 +228,11 @@ export class Proactive {
       });
     }
     if (questions.length === 0) {
-      const why = wall ? `The double-text cap (${cap}) is reached: waiting for their reply.` : "Nothing to text about.";
+      const why = held
+        ? "Holding after the safeword: only reminders, until they bring her back."
+        : wall
+          ? `The double-text cap (${cap}) is reached: waiting for their reply.`
+          : "Nothing to text about.";
       return { outcome: result("nothing", why), logIt: false };
     }
     if (!decider.enabled() && snap.due.length === 0) {

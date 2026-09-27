@@ -39,7 +39,7 @@ describe("buildPromptStack", () => {
     const [system] = buildPromptStack({ settings: defaultSettings(), channel, messages: [], now });
     expect(system!.role).toBe("system");
     expect(system!.content).toStartWith(`## Who you are\n\n${FRAMING}`);
-    expect(system!.content).toContain("You're Kitsikai");
+    expect(system!.content).toContain("i live in my own app now");
     expect(system!.content).toContain("## How you text");
     expect(system!.content).toContain("<cht>");
     expect(system!.content).toContain("## Where you're texting\n\nYou're in #general.");

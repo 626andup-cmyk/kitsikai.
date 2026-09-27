@@ -33,6 +33,8 @@
 
 import { todayAndTomorrow } from "./binder.ts";
 import { splitBubbles } from "./bubbles.ts";
+import { registerPrompt, routeTurn } from "./intimacy.ts";
+import type { Decider } from "./jev.ts";
 import { memoryForPrompt } from "./memory.ts";
 import { dueReminders, remindersForPrompt } from "./reminders.ts";
 import type { Events } from "./events.ts";
@@ -113,6 +115,8 @@ export interface PromptOptions {
   now?: Date;
   /** Why she's texting first (stage 8). */
   note?: string;
+  /** The intimacy register's prompt text, or "" for none (see src/intimacy.ts). */
+  registerPrompt?: string;
 }
 
 /**
@@ -145,6 +149,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     memory: memoryForPrompt(store.memory, settings, now),
     note: options.note,
     tools: options.profile?.supportsTools ?? false,
+    registerPrompt: options.registerPrompt ?? "",
   });
 }
 
@@ -181,6 +186,8 @@ export class Kitsikai {
     private readonly api: ApiOptions,
     private readonly clock: () => Date = () => new Date(),
     private readonly events?: Events,
+    /** Asks Jev (src/jev.ts), for the intimacy register check (src/intimacy.ts). */
+    private readonly decider?: Decider,
   ) {}
 
   /** Tell the app which channels she's writing in. */
@@ -238,11 +245,21 @@ export class Kitsikai {
     try {
       const profile = options.profileId ? this.store.profiles.get(options.profileId) : pickProfile(this.store, channel);
       const now = this.clock();
+
+      // Intimacy register (src/intimacy.ts): the safeword and its hold come
+      // first, and work without Jev; otherwise Jev reads the conversation and
+      // picks a mode.
+      const route = await routeTurn({ store: this.store, decider: this.decider, now, events: this.events }, channelId, controller.signal);
+      if (controller.signal.aborted) throw new CancelledError();
+      const regPrompt = registerPrompt(route.register);
+      console.log(`[kitsikai] intimacy register: ${route.register} (${route.reason})`);
+
       const conversation: ApiMessage[] = promptForChannel(this.store, channelId, {
         excludeIds: options.replacing,
         profile,
         now,
         note: options.note,
+        registerPrompt: regPrompt,
       });
       const context: ToolContext = { store: this.store, channel, now, events: this.events };
       const tools = profile.supportsTools ? toolSpecs() : [];

@@ -67,6 +67,8 @@ const state = {
   appVersion: null,
   /** Whether the server can post phone notifications (Termux:API, stage 8). */
   notificationsAvailable: false,
+  /** The safeword hold, {since, messageId}, while it's on (src/intimacy.ts); else null. */
+  intimacyHold: null,
 };
 
 // Shortcut for looking up elements by id.
@@ -175,6 +177,7 @@ async function loadState() {
   state.roulettes = data.roulettes;
   state.busy = new Set(data.busyChannels);
   state.notificationsAvailable = data.notificationsAvailable;
+  state.intimacyHold = data.intimacyHold ?? null;
   checkTimeZone(data.clock);
   state.planner = data.planner;
   state.appVersion ??= data.appVersion;
@@ -720,6 +723,10 @@ function handleEvent(event) {
       // The advanced page, if it's open (public/memory.js).
       if ($("notes-dialog").open) loadNotes();
       break;
+    case "hold":
+      state.intimacyHold = event.hold;
+      renderHold();
+      break;
   }
 }
 
@@ -1076,6 +1083,30 @@ function renderComposer() {
   $("stop-button").hidden = !busy;
   els.turn.disabled = busy;
   els.input.placeholder = `Message #${channel.name}`;
+  renderHold();
+}
+
+/**
+ * The safeword hold (src/intimacy.ts): a banner above the composer while
+ * it's on, so you know she heard it (and can undo a false alarm), and its
+ * status in Settings.
+ */
+function renderHold() {
+  const hold = state.intimacyHold;
+  $("hold-banner").hidden = !hold;
+  $("hold-status").hidden = !hold;
+  if (hold) $("hold-status-text").textContent = `Holding since ${formatTime(hold.since)}, after the safeword.`;
+}
+
+/** "Bring her back": end the hold by hand. */
+async function liftHold() {
+  try {
+    const data = await api("POST", "/api/intimacy/lift", {});
+    state.intimacyHold = data.intimacyHold;
+    renderHold();
+  } catch (error) {
+    showError(`Couldn't bring her back: ${error.message}`, liftHold);
+  }
 }
 
 /**
@@ -1719,7 +1750,11 @@ function openSettings() {
   form.snapshotMinutes.value = s.snapshotMinutes;
   form.doubleTextCap.value = String(s.doubleTextCap);
   form.notifications.checked = s.notifications;
+  form.notificationPreview.checked = s.notificationPreview;
   $("notifications-unavailable").hidden = state.notificationsAvailable;
+  // Intimacy (src/intimacy.ts).
+  form.intimacyEnabled.checked = s.intimacyEnabled;
+  renderHold();
   $("jev-test-result").hidden = true;
   updateAdvanced();
   hideFormError(els.settingsForm);
@@ -1754,6 +1789,8 @@ async function saveSettings(event) {
       snapshotMinutes: Number(form.snapshotMinutes.value),
       doubleTextCap: form.doubleTextCap.value === "judge" ? "judge" : Number(form.doubleTextCap.value),
       notifications: form.notifications.checked,
+      notificationPreview: form.notificationPreview.checked,
+      intimacyEnabled: form.intimacyEnabled.checked,
     });
     state.settings = data.settings;
     els.settingsDialog.close();
@@ -2405,6 +2442,8 @@ $("theme-upload").addEventListener("change", (event) => {
 $("notice-dismiss").addEventListener("click", () => ($("notice").hidden = true));
 els.messages.addEventListener("scroll", watchForStutter, { passive: true });
 $("update-reload").addEventListener("click", () => location.reload());
+$("hold-lift").addEventListener("click", liftHold);
+$("hold-status-lift").addEventListener("click", liftHold);
 
 // Coming back to the app (switching to it, unlocking the phone): catch up on
 // anything missed while it sat in the background, and check for an update.

@@ -51,6 +51,14 @@ export interface FakeNanoGpt {
   jevReplies: JevReply[];
   /** Answer Jev requests with a function, when the queue is empty. */
   jev?: (request: JevRequest) => JevReply;
+  /**
+   * Every intimacy routing request to Jev (src/intimacy.ts: the "register"
+   * and "back" questions), oldest first. Not in `jevRequests`, so the rest
+   * of the tests don't count the one before each of her turns.
+   */
+  routeRequests: JevRequest[];
+  /** Queue routing replies; else the defaults ("warm", and "no": she isn't brought back). */
+  routeReplies: JevReply[];
   /** Every chat completion request received, oldest first. */
   requests: Array<{
     model: string;
@@ -66,7 +74,7 @@ export interface FakeNanoGpt {
 }
 
 export function startFakeNanoGpt(): FakeNanoGpt {
-  const fake: FakeNanoGpt = { baseUrl: "", requests: [], replies: [], jevRequests: [], jevReplies: [], stop: () => {} };
+  const fake: FakeNanoGpt = { baseUrl: "", requests: [], replies: [], jevRequests: [], jevReplies: [], routeRequests: [], routeReplies: [], stop: () => {} };
 
   const server = Bun.serve({
     port: 0, // let the OS pick a free port
@@ -141,6 +149,9 @@ interface JevWireQuestion {
   criteria: Record<string, string>;
 }
 
+/** The question ids intimacy routing asks, alone (see `routeRequests`). */
+const ROUTING = ["register", "back"];
+
 /**
  * The fake Jev: checks the request has TypeSafe's shape (like nanoGPT does),
  * and answers every question in TypeSafe's format:
@@ -161,8 +172,15 @@ function answerJev(fake: FakeNanoGpt, body: { model: string; messages: ChatMessa
     options: Object.keys(q.criteria ?? {}),
   }));
   const request: JevRequest = { model: body.model, state: body.messages[0]?.content ?? "", questions };
-  fake.jevRequests.push(request);
-  const reply = fake.jevReplies.shift() ?? fake.jev?.(request) ?? {};
+  const routing = questions.length === 1 && ROUTING.includes(questions[0]!.id);
+  let reply: JevReply;
+  if (routing) {
+    fake.routeRequests.push(request);
+    reply = fake.routeReplies.shift() ?? {};
+  } else {
+    fake.jevRequests.push(request);
+    reply = fake.jevReplies.shift() ?? fake.jev?.(request) ?? {};
+  }
   if ("status" in reply && typeof reply.status === "number") {
     return Response.json({ error: { message: reply.error } }, { status: reply.status });
   }

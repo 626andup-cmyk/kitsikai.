@@ -99,6 +99,8 @@ export interface PromptInput {
   note?: string;
   /** Whether she can use tools this turn (adds guidance on them). */
   tools?: boolean;
+  /** The intimacy register's prompt text, or "" for none (see src/intimacy.ts). */
+  registerPrompt?: string;
 }
 
 /**
@@ -116,6 +118,7 @@ export function buildPromptStack(input: PromptInput): ChatMessage[] {
     { title: "Today and tomorrow", content: input.todayAndTomorrow ? `${PLANNER_NOTE}\n\n${input.todayAndTomorrow}` : null },
     { title: "Reminders due", content: input.reminders },
     { title: "Your notes and pins", content: input.memory },
+    { title: "Between you right now", content: input.registerPrompt?.trim() || null },
     { title: "Tools", content: tools ? TOOL_GUIDANCE : null },
     { title: "Model notes", content: modelNotes },
   ];

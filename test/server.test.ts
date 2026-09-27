@@ -42,7 +42,7 @@ describe("a new server", () => {
     expect(data.channels.map((c: Channel) => c.name)).toEqual(["general", "planner", "trackers"]);
     expect(data.profiles).toHaveLength(1);
     expect(data.settings.name).toBe("Kitsikai");
-    expect(data.settings.persona).toContain("You're Kitsikai");
+    expect(data.settings.persona).toContain("i live in my own app now");
     expect(data.busyChannels).toEqual([]);
     expect(data.appVersion).toMatch(/^[0-9a-f]{12}$/);
   });

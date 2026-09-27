@@ -554,5 +554,40 @@ describeUi("the app in a browser", () => {
     await page.waitForSelector('.message[data-author="kitsikai"] .message-content:has-text("dentist in an hour!!")');
     expect(t.errors).toEqual([]);
   });
+
+  test("the safeword: a banner while she holds, Bring her back, and the intimacy settings", async () => {
+    const { page, app } = t;
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    expect(await page.isVisible("#hold-banner")).toBe(false);
+    await page.fill("#composer-input", "seriously");
+    await page.keyboard.press("Enter");
+    // The hold starts with her turn, and the app hears about it.
+    await page.waitForSelector("#hold-banner:not([hidden])");
+    expect(await page.textContent("#hold-banner")).toContain("Safeword heard");
+    expect(app.store.intimacy.get()).not.toBeNull();
+
+    await page.click("#hold-lift");
+    await page.waitForSelector("#hold-banner", { state: "hidden" });
+    expect(app.store.intimacy.get()).toBeNull();
+
+    // Held again (say, after a reload), Settings shows it too, with its own button.
+    app.store.intimacy.start(new Date(), null);
+    await page.reload();
+    await page.waitForSelector("#hold-banner:not([hidden])");
+    await page.click("#settings-button");
+    expect(await page.textContent("#hold-status-text")).toMatch(/^Holding since .+, after the safeword\.$/);
+    expect(await page.isChecked("#setting-intimacy")).toBe(true);
+    expect(await page.isChecked("#setting-notification-preview")).toBe(true);
+    await page.click("#hold-status-lift");
+    await page.waitForSelector("#hold-status", { state: "hidden" });
+    expect(await page.isVisible("#hold-banner")).toBe(false);
+
+    await page.uncheck("#setting-intimacy");
+    await page.uncheck("#setting-notification-preview");
+    await page.click('#settings-form button[type="submit"]');
+    await page.waitForSelector("#settings-dialog", { state: "hidden" });
+    expect(app.store.getSettings()).toMatchObject({ intimacyEnabled: false, notificationPreview: false });
+    expect(t.errors).toEqual([]);
+  });
 });
 

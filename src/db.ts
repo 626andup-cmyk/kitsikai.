@@ -18,7 +18,7 @@
  * writing actual data happens in `src/store.ts` and the files it uses.
  */
 
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings, type Statement } from "bun:sqlite";
 
 /**
  * Every change ever made to the database layout, oldest first.
@@ -385,7 +385,60 @@ export const MIGRATIONS: Migration[] = [
   `
   ALTER TABLE plans ADD COLUMN overnight INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // ---------------------------------------------------------------- 9
+  // The safeword hold (src/hold.ts): one row while it's on. It lasts until
+  // you bring her back, across turns, channels and restarts.
+  `
+  CREATE TABLE intimacy_hold (
+    id         INTEGER PRIMARY KEY CHECK (id = 1),
+    since      TEXT NOT NULL,
+    message_id TEXT REFERENCES messages (id) ON DELETE SET NULL
+  );
+  `,
 ];
+
+/** How many prepared queries to keep, at most (the app has a few hundred). */
+const MAX_CACHED_QUERIES = 1000;
+
+/**
+ * Bun's database, with a query cache that doesn't run out.
+ *
+ * `db.query(sql)` keeps the prepared query, so the next call with the same
+ * SQL reuses it. Bun only keeps 20, though, and past that each call prepares
+ * a new one that stays open until the garbage collector gets to it. Kitsikai
+ * has far more than 20 queries, so `close()` would leave the file half-open,
+ * and the tests (which open and delete hundreds of databases) would now and
+ * then find a new file "locked" by an old one. This keeps them all, and
+ * closes them all.
+ */
+class KitsikaiDatabase extends Database {
+  readonly #queries = new Map<string, Statement<any, any>>();
+
+  override query<ReturnType, ParamsType extends SQLQueryBindings | SQLQueryBindings[]>(
+    sql: string,
+  ): Statement<ReturnType, ParamsType extends any[] ? ParamsType : [ParamsType]> {
+    let statement = this.#queries.get(sql);
+    if (!statement) {
+      // Only searches build their SQL as they go; if those ever pile up,
+      // the oldest query goes first.
+      if (this.#queries.size >= MAX_CACHED_QUERIES) {
+        const [oldest, old] = this.#queries.entries().next().value!;
+        old.finalize();
+        this.#queries.delete(oldest);
+      }
+      statement = this.prepare(sql);
+      this.#queries.set(sql, statement);
+    }
+    return statement;
+  }
+
+  override close(throwOnError?: boolean): void {
+    for (const statement of this.#queries.values()) statement.finalize();
+    this.#queries.clear();
+    super.close(throwOnError);
+  }
+}
 
 /**
  * Open (or create) the database file and bring its layout up to date.
@@ -395,7 +448,7 @@ export const MIGRATIONS: Migration[] = [
 export function openDatabase(path: string): Database {
   // `strict: true` lets queries use `$name` placeholders filled from plain
   // objects like `{ name: "general" }`, and makes a missing value an error.
-  const db = new Database(path, { create: true, strict: true });
+  const db = new KitsikaiDatabase(path, { create: true, strict: true });
 
   // SQLite doesn't enforce REFERENCES unless asked to, once per connection.
   db.exec("PRAGMA foreign_keys = ON");

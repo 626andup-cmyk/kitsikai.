@@ -131,6 +131,8 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.avatar`, `.message-meta`, `.message-author`, `.message-time`, `.message-model`, `.message-content`, `.message-actions` | Parts of a message |
 | `.composer`, `.composer-input`, `.composer-buttons`, `.status`, `.typing-dots`, `.stop-button`, `.error-banner` | The composer area. `.status` is the typing indicator; it gets `.revealing` while her bubbles are appearing one by one (double-tap it to skip). |
 | `.update-banner` | "Kitsikai has been updated", at the top of the channel |
+| `.hold-banner` | "Safeword heard", above the composer while the safeword hold is on |
+| `.hold-status` | The safeword hold's status in Settings → Intimacy |
 | `.notice-banner` | Short notices at the top of the channel, e.g. about glass effects |
 | `.button`, `.button-primary`, `.button-danger`, `.icon-button`, `.link-button` | Buttons |
 | `.dialog`, `.dialog-title`, `.dialog-buttons`, `.hint`, `.form-error` | Dialogs and their parts |

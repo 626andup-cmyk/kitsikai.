@@ -148,6 +148,14 @@ export interface Settings {
   doubleTextCap: DoubleTextCap;
   /** Post her messages as phone notifications (Termux) while the app isn't open. */
   notifications: boolean;
+  /** Show her message's text in the notification. Off: only "new message", for a lock screen others can see. */
+  notificationPreview: boolean;
+  /**
+   * Whether Jev routes her intimacy registers (see src/intimacy.ts). Off: she
+   * stays in "warm" and the persona's [INTIMACY] section does the work alone.
+   * The safeword works either way.
+   */
+  intimacyEnabled: boolean;
   /** The app theme's id (see `src/themes.ts`). "classic" is the default look. */
   appTheme: string;
   /**

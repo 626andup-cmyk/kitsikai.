@@ -240,7 +240,7 @@ export class Proactive {
     }
 
     // Without Jev, reminders still go out; anything else needs a decision.
-    const answers: Answers = decider.enabled() ? await decider.ask(this.state(snap, settings.name), questions) : new Map();
+    const answers: Answers = decider.enabled() ? await decider.ask(this.state(snap, settings.name), questions, { purpose: "Texting first: snapshot check" }) : new Map();
     const sure = (id: string, option = "yes") => `${percent(probabilityOf(answers.get(id), option))} sure`;
 
     // --- reminders: skip the ones you just talked about
@@ -423,7 +423,7 @@ export class Proactive {
         .filter((c) => recent.get(c.id)!.length)
         .map((c) => `The last ${INTERRUPT_MINUTES} minutes in #${c.name}:\n${recent.get(c.id)!.map((m) => chatLine(m, name)).join("\n")}`),
     ].join("\n\n");
-    const answers: Answers = questions.length && decider.enabled() ? await decider.ask(state, questions) : new Map();
+    const answers: Answers = questions.length && decider.enabled() ? await decider.ask(state, questions, { purpose: "Texting first: picking the channel" }) : new Map();
 
     // Best fit first (or home, if unsure), then the others by how well they fit.
     const choice = answers.get("channel");
@@ -476,6 +476,7 @@ export class Proactive {
     const answers = await decider.ask(
       `${name} just texted them:\n${messages.map((m) => m.content).join("\n")}\n\nReminders that are due:\n${due.map((r, i) => `- r${i + 1}: ${r.text}`).join("\n")}`,
       due.map((r, i) => ({ id: `r${i + 1}`, kind: "yesno" as const, question: `Did ${name}'s text remind them about r${i + 1} (${r.text})?` })),
+      { purpose: "Reminders: did she mention them?" },
     );
     const threshold = store.getSettings().decisionConfidence;
     due.forEach((r, i) => {

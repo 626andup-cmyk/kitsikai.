@@ -448,6 +448,24 @@ describeUi("the app in a browser", () => {
     await page.click("#test-jev");
     await page.waitForSelector("#jev-test-result.ok");
     expect(await page.textContent("#jev-test-result p")).toBe('✓ Jev answered "yes", 97% sure, as expected. It\'s working.');
+
+    // The Jev log has that call, with everything sent and received.
+    fake.jevReplies.push({ status: 503, error: "Model unavailable" });
+    await page.click("#test-jev");
+    await page.waitForSelector("#jev-test-result.failed");
+    await page.click("#open-jev-log");
+    await page.waitForSelector("#jev-log-dialog[open] .jev-call");
+    expect(await page.$$eval(".jev-call .tool-call-name", (nodes) => nodes.map((n) => n.textContent))).toEqual(["Test Jev", "Test Jev"]);
+    expect(await page.textContent("#jev-log-count")).toMatch(/^2 calls to Jev in the last 36 hours, 1 with an error/);
+    expect(await page.textContent('.jev-call[data-status="error"] .tool-call-summary')).toContain("HTTP 503");
+    expect(await page.textContent('.jev-call[data-status="ok"] .tool-call-summary')).toBe("pet: yes (97%)");
+    await page.click('.jev-call[data-status="ok"] summary');
+    expect(await page.textContent('.jev-call[data-status="ok"] .jev-call-part pre')).toContain("guess what, I just got a puppy");
+    expect(await page.textContent('.jev-call[data-status="ok"] .tool-call-raw')).toContain('"response_format"');
+    await page.check("#jev-log-errors");
+    expect(await page.locator(".jev-call").count()).toBe(1);
+    await page.click("#jev-log-dialog [data-close]");
+
     await page.fill("#setting-processing-hours", "2");
     await page.fill("#setting-pin-cap", "5");
     await page.fill("#setting-confidence", "0.9");

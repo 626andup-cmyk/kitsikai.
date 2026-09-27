@@ -21,6 +21,7 @@ import { ToolLog } from "./activity.ts";
 import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { IntimacyHold } from "./hold.ts";
+import { JevLog } from "./jevlog.ts";
 import { Memory } from "./memory.ts";
 import { ProactiveLog, Reminders } from "./reminders.ts";
 import { Plans } from "./planner.ts";
@@ -407,6 +408,8 @@ export class Store {
   readonly proactiveLog: ProactiveLog;
   /** The safeword hold (see `src/hold.ts`, `src/intimacy.ts`). */
   readonly intimacy: IntimacyHold;
+  /** Every Jev call from the last 36 hours (see `src/jevlog.ts`). */
+  readonly jevLog: JevLog;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -437,6 +440,7 @@ export class Store {
     this.reminders = new Reminders(this.db);
     this.proactiveLog = new ProactiveLog(this.db);
     this.intimacy = new IntimacyHold(this.db);
+    this.jevLog = new JevLog(this.db);
 
     if (isNew) this.seed();
   }

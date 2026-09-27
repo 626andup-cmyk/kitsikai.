@@ -57,6 +57,7 @@
  *   GET    /api/memory                    Her notes, pins, drawer and processing log (the advanced page)
  *   POST   /api/processing/run            Process her notes now ("Process now", for testing)
  *   POST   /api/jev/test                  Ask Jev one tiny question, to see if it's reachable and understood
+ *   GET    /api/jev/log                   Every Jev call from the last 36 hours, exactly as sent and received
  *
  *   GET    /api/import/targets            Empty text channels, where a chat can be imported
  *   POST   /api/import/preview            Read a Lumiverse/SillyTavern chat export: counts, names, dates (no text)
@@ -107,6 +108,7 @@ import { Scratchpad } from "./scratchpad.ts";
 import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts";
 import { Proactive } from "./proactive.ts";
 import { registerPrompt } from "./intimacy.ts";
+import { JEV_LOG_HOURS } from "./jevlog.ts";
 import { CatchUp } from "./catchup.ts";
 import { ImportError, importChat, MAX_IMPORT_CHARS, parseChat, previewOf, type ImportTarget } from "./importer.ts";
 import { dueReminders } from "./reminders.ts";
@@ -261,7 +263,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       }
     }
     return { decisionModel: settings.decisionModel, fallback };
-  });
+  }, (call) => store.jevLog.add(call, now()));
   const kitsikai = new Kitsikai(store, api, now, events, decider);
   const scratchpad = new Scratchpad({ store, api, decider, events, clock: now });
   const processing = new Processing({ store, api, decider, events, clock: now });
@@ -736,6 +738,13 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       method: "POST",
       pattern: "/api/jev/test",
       handler: async () => json({ test: await testJev(decider) }),
+    },
+    {
+      method: "GET",
+      pattern: "/api/jev/log",
+      // The Jev log: every call from the last 36 hours, newest first (?errors=1 for failed ones).
+      handler: (request) =>
+        json({ calls: store.jevLog.recent(now(), { errorsOnly: new URL(request.url).searchParams.get("errors") === "1" }), hours: JEV_LOG_HOURS }),
     },
 
     // ------------------------------------------------------ importing

@@ -348,7 +348,8 @@
         <input id="setting-decision-model" name="decisionModel" autocomplete="off" spellcheck="false" placeholder="typesafe/jev-1.13" />
         <p class="hint">
           Jev's model id on nanoGPT, pinned to a version so it only changes when you change it. Empty turns Jev off.
-          <button type="button" class="link-button inline-link" id="test-jev">Test Jev</button> (uses the saved settings)
+          <button type="button" class="link-button inline-link" id="test-jev">Test Jev</button> (uses the saved settings) ·
+          <button type="button" class="link-button inline-link" id="open-jev-log">Jev log</button>
         </p>
         <div id="jev-test-result" class="jev-test-result" hidden></div>
 
@@ -1033,6 +1034,27 @@
           <button type="submit" class="button button-primary">Save</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- Every call to Jev from the last 36 hours, exactly as sent and received (src/jevlog.ts). -->
+    <dialog id="jev-log-dialog" class="dialog surface tool-log jev-log">
+      <h2 class="dialog-title">Jev log</h2>
+      <p class="hint" id="jev-log-count">
+        Every question Jev was asked in the last 36 hours, newest first: what asked, what Jev was told, and its reply,
+        exactly as sent and received. Older calls are deleted as new ones come in.
+      </p>
+      <div class="dialog-buttons tool-log-actions">
+        <label class="check-inline"><input type="checkbox" id="jev-log-errors" /> Errors only</label>
+        <span class="spacer"></span>
+        <button type="button" class="button" id="jev-log-refresh">Refresh</button>
+        <button type="button" class="button" id="jev-log-copy">Copy as text</button>
+      </div>
+      <ol id="jev-log-list" class="tool-log-list"></ol>
+      <p class="form-error" role="alert" hidden></p>
+      <div class="dialog-buttons">
+        <span class="spacer"></span>
+        <button type="button" class="button button-primary" data-close>Close</button>
+      </div>
     </dialog>
 
     <!-- Every tool call in the open channel, for troubleshooting (stage 6, from Aettica). -->

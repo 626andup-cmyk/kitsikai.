@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { confidentChoice, Decider, jevRequestBody, readAnswers, testJev, tier, type Answer, type Question } from "../src/jev.ts";
+import { confidentChoice, Decider, jevRequestBody, readAnswers, testJev, tier, type Answer, type JevCall, type Question } from "../src/jev.ts";
 import { ApiError } from "../src/nanogpt.ts";
 import type { Profile } from "../src/types.ts";
 import { startFakeNanoGpt, type FakeNanoGpt } from "./helpers.ts";
@@ -233,5 +233,96 @@ describe("Test Jev", () => {
     expect(failed.ok).toBe(false);
     expect(failed.detail).toContain("HTTP 404");
     expect(failed.answer).toBeNull();
+  });
+});
+
+describe("the Jev log", () => {
+  let fake: FakeNanoGpt;
+  let settings: { decisionModel: string; fallback: Profile | null };
+  let calls: JevCall[];
+  let decider: Decider;
+  const fallback: Profile = {
+    id: "p1",
+    name: "Steady",
+    model: "steady/model",
+    temperature: 0.7,
+    maxTokens: 500,
+    topP: null,
+    reasoningEffort: null,
+    supportsTools: false,
+    quirkPrompt: "",
+    extraParams: "",
+    position: 0,
+    createdAt: "",
+  };
+
+  beforeEach(() => {
+    fake = startFakeNanoGpt();
+    settings = { decisionModel: "typesafe/jev-1.13", fallback: null };
+    calls = [];
+    decider = new Decider({ apiKey: "test-key", baseUrl: fake.baseUrl, timeoutMs: 5000 }, () => settings, (call) => calls.push(call));
+  });
+  afterEach(() => fake.stop());
+
+  test("every call: what asked, the request exactly as sent, the reply exactly as received, and the answers in short", async () => {
+    fake.jevReplies.push({ q1: "yes", q2: { selected: "yesterday", p: 0.7 } });
+    await decider.ask("They said hi.", QUESTIONS, { purpose: "Scratchpad check" });
+    expect(calls).toHaveLength(1);
+    const [call] = calls;
+    expect(call).toMatchObject({ purpose: "Scratchpad check", model: "typesafe/jev-1.13", error: null, answeredBy: "jev", fallback: null });
+    expect(call!.request).toEqual(jevRequestBody("typesafe/jev-1.13", "They said hi.", QUESTIONS));
+    expect(JSON.parse(call!.response).choices[0].message.content).toContain('"answers"');
+    expect(call!.summary).toBe("q1: yes (95%), q2: yesterday (70%)");
+    expect(call!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("without a purpose it's \"Other\"; no questions, nothing sent, nothing logged", async () => {
+    await decider.ask("state", QUESTIONS);
+    await decider.ask("state", []);
+    expect(calls.map((c) => c.purpose)).toEqual(["Other"]);
+  });
+
+  test("a failed call keeps Jev's whole reply and the error", async () => {
+    fake.jevReplies.push({ status: 503, error: "Model unavailable" });
+    await decider.ask("state", QUESTIONS, { purpose: "Processing" }).catch(() => {});
+    expect(calls[0]).toMatchObject({ answeredBy: null, summary: "", fallback: null });
+    expect(calls[0]!.error).toContain("HTTP 503");
+    expect(calls[0]!.response).toBe('{"error":{"message":"Model unavailable"}}');
+  });
+
+  test("when the fallback answers, its request and reply are there too", async () => {
+    settings.fallback = fallback;
+    fake.jevReplies.push({ status: 503, error: "Model unavailable" });
+    fake.replies.push({ content: '{"q1": {"answer": "yes", "probability": 0.9}}' });
+    await decider.ask("They have a headache.", QUESTIONS, { purpose: "Scratchpad check" });
+    const [call] = calls;
+    expect(call).toMatchObject({ answeredBy: "fallback", summary: "q1: yes (90%)" });
+    expect(call!.error).toContain("HTTP 503");
+    expect(call!.fallback).toMatchObject({ profile: "Steady", model: "steady/model", response: '{"q1": {"answer": "yes", "probability": 0.9}}', error: null });
+    expect(call!.fallback!.messages[1]!.content).toContain("The situation:\n\nThey have a headache.");
+
+    // Jev turned off: only the fallback was asked (and its reply couldn't be read).
+    settings.decisionModel = "";
+    fake.replies.push({ content: "no idea" });
+    await decider.ask("state", QUESTIONS).catch(() => {});
+    expect(calls[1]).toMatchObject({ model: "", request: null, response: "", answeredBy: null, summary: "" });
+    expect(calls[1]!.error).toContain("Jev is turned off");
+    expect(calls[1]!.fallback).toMatchObject({ response: "no idea", error: "The model's reply wasn't the JSON it was asked for." });
+  });
+
+  test("a stopped call says so", async () => {
+    fake.jevReplies.push({ q1: "yes" });
+    const stop = new AbortController();
+    stop.abort();
+    await decider.ask("state", QUESTIONS, { signal: stop.signal, purpose: "Scratchpad check" }).catch(() => {});
+    expect(calls[0]!.error).toBe("Stopped: a newer message came in, or you pressed Stop.");
+  });
+
+  test("a log that can't be written never gets in the way of a decision", async () => {
+    const failing = new Decider({ apiKey: "test-key", baseUrl: fake.baseUrl, timeoutMs: 5000 }, () => settings, () => {
+      throw new Error("disk full");
+    });
+    fake.jevReplies.push({ q1: "yes" });
+    expect((await failing.ask("state", QUESTIONS)).get("q1")!.selected).toBe("yes");
   });
 });

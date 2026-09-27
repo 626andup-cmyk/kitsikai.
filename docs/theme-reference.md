@@ -131,6 +131,7 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.avatar`, `.message-meta`, `.message-author`, `.message-time`, `.message-model`, `.message-content`, `.message-actions` | Parts of a message |
 | `.composer`, `.composer-input`, `.composer-buttons`, `.status`, `.typing-dots`, `.stop-button`, `.error-banner` | The composer area. `.status` is the typing indicator; it gets `.revealing` while her bubbles are appearing one by one (double-tap it to skip). |
 | `.update-banner` | "Kitsikai has been updated", at the top of the channel |
+| `.jev-log`, `.jev-call`, `.jev-call-part` | The Jev log (Settings → Her memory → Jev log). It reuses the tool log's classes; each call also has `.jev-call` with `data-answered-by` (`jev`, `fallback` or `nobody`), and each part of it (what it was told, the request, the reply) is a `.jev-call-part`. |
 | `.hold-banner` | "Safeword heard", above the composer while the safeword hold is on |
 | `.hold-status` | The safeword hold's status in Settings → Intimacy |
 | `.notice-banner` | Short notices at the top of the channel, e.g. about glass effects |

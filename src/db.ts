@@ -448,6 +448,14 @@ export const MIGRATIONS: Migration[] = [
   );
   CREATE INDEX jev_log_by_time ON jev_log (at);
   `,
+
+  // ---------------------------------------------------------------- 12
+  // Images in chat (src/images.ts). An image is a message of yours with the
+  // file's details here, as JSON; its content is what the vision model saw.
+  // The file itself is in data/images/.
+  `
+  ALTER TABLE messages ADD COLUMN image TEXT;
+  `,
 ];
 
 /** How many prepared queries to keep, at most (the app has a few hundred). */

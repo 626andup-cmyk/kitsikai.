@@ -40,7 +40,7 @@ import { NotFoundError, ValidationError } from "./errors.ts";
 import { checkValue } from "./trackers.ts";
 import type { ToolSpec } from "./nanogpt.ts";
 import { PLAN_KINDS } from "./planner.ts";
-import { formatClock } from "./prompt.ts";
+import { formatClock, modelText } from "./prompt.ts";
 import type { Events } from "./events.ts";
 import type { Store } from "./store.ts";
 import type { Channel, LogEntry, PlanKind, Tracker, TrackerKind } from "./types.ts";
@@ -406,7 +406,7 @@ const TOOLS: ToolDefinition[] = [
       const messages = ctx.store.recentMessages(channel.id, count);
       return {
         result: messages.length
-          ? messages.map((m) => ({ from: m.author === "user" ? "them" : "you", text: m.content, when: when(m.createdAt, ctx.now) }))
+          ? messages.map((m) => ({ from: m.author === "user" ? "them" : "you", text: modelText(m), when: when(m.createdAt, ctx.now) }))
           : { note: `#${channel.name} is empty.` },
         summary: `read #${channel.name}`,
       };
@@ -439,7 +439,7 @@ const TOOLS: ToolDefinition[] = [
               when: `${dayName(dateOf(new Date(m.createdAt)))} ${new Date(m.createdAt).getFullYear()}, ${formatClock(new Date(m.createdAt))}`,
               channel: `#${channelName(m.channelId)}`,
               from: m.author === "user" ? "them" : "you",
-              text: m.content.length > 400 ? `${m.content.slice(0, 400)}…` : m.content,
+              text: modelText(m).length > 400 ? `${modelText(m).slice(0, 400)}…` : modelText(m),
             }))
           : { note: `Nothing older mentions "${query}".` },
         summary: `searched the history for "${query}"`,

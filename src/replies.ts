@@ -40,14 +40,18 @@ export class Replies {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Turns this has started and that haven't finished, so tests can wait for them. */
   private readonly running = new Set<Promise<void>>();
-  /** Channels where the scratchpad check is running. */
+  /** Channels where the scratchpad check (or reading your images) is running. */
   private readonly checkingIn = new Set<string>();
+  /** Goes up in a channel each time its wait is cancelled or restarted, so a turn can tell it's out of date. */
+  private readonly epochs = new Map<string, number>();
 
   constructor(
     private readonly store: Store,
     private readonly kitsikai: Kitsikai,
     private readonly events: Events,
     private readonly scratchpad?: Scratchpad,
+    /** Images you sent that are still being read (src/images.ts). */
+    private readonly images?: { settled(channelId: string): Promise<void> },
   ) {}
 
   /** You sent a bubble in a channel: (re)start her wait there. */
@@ -81,6 +85,7 @@ export class Replies {
     clearTimeout(this.timers.get(channelId));
     this.timers.delete(channelId);
     this.scratchpad?.cancel(channelId);
+    this.epochs.set(channelId, (this.epochs.get(channelId) ?? 0) + 1);
   }
 
   /**
@@ -123,6 +128,17 @@ export class Replies {
       return; // the channel was deleted
     }
     if (last?.author !== "user") return;
+
+    // Images you sent are read first (src/images.ts): she never answers a
+    // picture she hasn't seen. If you sent more meanwhile, or pressed Stop,
+    // this turn is out of date.
+    if (this.images) {
+      const epoch = this.epochs.get(channelId) ?? 0;
+      this.checkingIn.add(channelId);
+      await this.images.settled(channelId).finally(() => this.checkingIn.delete(channelId));
+      if ((this.epochs.get(channelId) ?? 0) !== epoch || this.timers.has(channelId)) return;
+      if (this.store.lastMessage(channelId)?.author !== "user") return;
+    }
 
     // Stage 7: Jev checks your new messages for her scratchpad first. It
     // never fails; if you sent more meanwhile (or pressed Stop), the next

@@ -2,7 +2,7 @@
 
 Kitsikai is an AI friend you text with. She lives in a small Discord-style app you share, and she's meant to be **proactive**: she knows your work schedule and plans, keeps an eye on things you've asked her to track, and texts you first when it makes sense. The full vision is in [DESIGN.md](DESIGN.md).
 
-**Status: all 8 stages are built**, and ready for a live test on the phone (see [Live test notes](#live-test-notes)). Channels where you text her, in bubbles, a 📅 planner for your shifts and plans, a memory that notices what you tell her, and texting first, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself), [stage 6](docs/stage-6.md) (tools: she looks things up), [stage 7](docs/stage-7.md) (her memory: decision models, confidence and batch jobs) and [stage 8](docs/stage-8.md) (texting first: background timers and notifications). Also: [importing a chat](docs/importing.md) and [intimacy](docs/intimacy.md) (registers, and the safeword).
+**Status: all 8 stages are built**, and ready for a live test on the phone (see [Live test notes](#live-test-notes)). Channels where you text her, in bubbles, a 📅 planner for your shifts and plans, a memory that notices what you tell her, and texting first, using models from [nanoGPT](https://nano-gpt.com), with the look and plumbing of [Aettica](https://github.com/626andup-cmyk/aettica). How it works inside: [stage 1](docs/stage-1.md) (reusing code across projects), [stage 2](docs/stage-2.md) (timing: bubbles, typing delays, waiting before replying) [stage 3](docs/stage-3.md) (dates, times, overnight shifts and repeats) [stage 4](docs/stage-4.md) (reading your schedule from a screenshot) [stage 5](docs/stage-5.md) (trackers: data you define yourself), [stage 6](docs/stage-6.md) (tools: she looks things up), [stage 7](docs/stage-7.md) (her memory: decision models, confidence and batch jobs) and [stage 8](docs/stage-8.md) (texting first: background timers and notifications). Also: [importing a chat](docs/importing.md), [intimacy](docs/intimacy.md) (registers, and the safeword) and [images in chat](docs/images.md).
 
 ## What it can do
 
@@ -24,10 +24,11 @@ Kitsikai is an AI friend you text with. She lives in a small Discord-style app y
 - **Notifications** (Termux): her messages show up on your phone while the app isn't open; tap one to open that channel. Turn off **Show what she said** for a lock screen others can see.
 - **Intimacy registers**: before each of her turns, Jev reads the mood and picks which mode from the persona's [INTIMACY] section she's in. **The safeword** ("seriously") stops everything at once, no model needed: she holds, plain and warm, and texts first only for reminders, until you bring her back by telling her or with **Bring her back**. See [docs/intimacy.md](docs/intimacy.md).
 - **Bring over a chat** from Lumiverse or SillyTavern (Settings → Chat history): it goes into its own channel with the original dates, she can **search** everything you've said (not just the recent messages in view), and, if you like, she **catches up** on it, noting what's still worth knowing. The preview never shows message text. See [docs/importing.md](docs/importing.md).
+- **Send her pictures** (🖼️ next to the text box, or paste one): a vision model of your choice describes each, and that description is what she (and every model) gets instead, so text-only models can follow along. You see the picture; under it, **what she sees**, which you can edit, or have read again. See [docs/images.md](docs/images.md).
 - **Her turn**: let her text without a new message from you.
 - **Stop** a reply that's taking too long. Nothing is saved.
 - **Regenerate** her last reply (or **Regenerate with…** a particular profile), **edit** or **delete** any message.
-- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots and which writes her notes, Jev's model (with **Test Jev**, and a **Jev log** of every call from the last 36 hours, exactly as sent and received) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, texting first (on or off, how often she checks, the double-text cap), notifications (and whether they show what she said), intimacy registers (on or off), how many recent messages she sees, how long she waits before replying, and how fast she "types".
+- **Settings**: her name, your name, her persona (who she is), which profile reads screenshots, which reads the images you send, and which writes her notes, Jev's model (with **Test Jev**, and a **Jev log** of every call from the last 36 hours, exactly as sent and received) and a fallback profile, how sure Jev has to be, how often she processes, how many pins she keeps, texting first (on or off, how often she checks, the double-text cap), notifications (and whether they show what she said), intimacy registers (on or off), how many recent messages she sees, how long she waits before replying, and how fast she "types".
 - **Connection profiles and roulettes** (Settings → Profiles and roulettes): a profile is a model with its settings and its own "model notes"; a roulette picks one of several profiles at random each turn, by weight. Each profile has a **Test tools** button.
 - **Preview prompt** (channel settings): see exactly what the model receives on her next turn.
 - **Themes** (the palette button): Classic, Frutiger Aero, Aero Glass, Liquid Glass, Liquid Glass Dark and Rainy Window, with sliders, real refracting glass in Chrome, Full/Lite/Automatic glass effects, per-channel themes, and a theme editor. See the [theme reference](docs/theme-reference.md).
@@ -75,7 +76,7 @@ Everything else is changed in the app.
 
 ## Your data
 
-Everything is saved in the `data/` folder: your chats and settings in an SQLite database, `data/kitsikai.db`, and your own themes in `data/themes/`. To back up, stop the server and copy the whole `data/` folder. (While the server is running, the database's recent changes are also in `kitsikai.db-wal` and `kitsikai.db-shm`, so copy those too.) The `data/` folder and `.env` are never committed to git.
+Everything is saved in the `data/` folder: your chats and settings in an SQLite database, `data/kitsikai.db`, your own themes in `data/themes/`, and the images you've sent in `data/images/`. To back up, stop the server and copy the whole `data/` folder. (While the server is running, the database's recent changes are also in `kitsikai.db-wal` and `kitsikai.db-shm`, so copy those too.) The `data/` folder and `.env` are never committed to git.
 
 Kitsikai has no login. Keep `HOST` at `127.0.0.1` so that nobody else on your Wi-Fi can open your chats.
 
@@ -107,6 +108,7 @@ src/
   proactive.ts Texting first: the snapshot check, picking a channel, the double-text cap
   reminders.ts Due reminders and what happened to each, on-call status, the texting-first log
   notify.ts    Phone notifications through Termux, and whether the app is on screen
+  images.ts    Images you send: the files, the vision model reading them, her reply waiting for it
   intimacy.ts  Which register she's in each turn, the safeword, and bringing her back
   hold.ts      The safeword hold, saved so it lasts
   importer.ts  Reading a Lumiverse/SillyTavern chat export, and importing it into a channel
@@ -149,7 +151,8 @@ Everything is tested against a fake nanoGPT (`bun test`), but a few things can o
 6. **Texting first:** make an appointment for an hour from now. On the advanced page, press **Check now**: she should text you a reminder. Then lock your phone and wait for a regular check (every 10 minutes by default) on something else, like a shift ending.
 7. **Notifications:** send her a message, then right away switch to another app (or lock the phone) before she answers. When her reply comes, a notification titled "Kitsikai in #general" should appear. Tap it: the app should open at that channel. If Settings says notifications aren't available, see the troubleshooting table in [docs/install.md](docs/install.md).
 8. **Intimacy:** if your saved persona is older than this update, paste in the new `defaults/persona.md` (Settings → persona; saving Settings keeps the persona you had). Send "seriously" in a chat: the "Safeword heard" banner should appear, and she should answer plainly. Tell her you're okay and want her back, or tap **Bring her back**: the banner goes. The server log shows which register she was in each turn (`[kitsikai] intimacy register: ...`). If a pick feels wrong, raise **How sure Jev has to be**, or turn **Intimacy registers** off.
-9. **Timings:** do the defaults feel right? Waiting before replying (4 s), typing speed, processing every 3 hours, checking every 10 minutes, 10 pins. All are in Settings.
+9. **Images:** set Settings → **Images you send are read by** to a vision profile (or leave it on "Same as screenshots"), then send her a photo. Does "What Kitsikai sees" describe it well? Tap the bubble → **Edit what she sees** to fix it. If it says it couldn't read the image, the profile probably isn't a vision model.
+10. **Timings:** do the defaults feel right? Waiting before replying (4 s), typing speed, processing every 3 hours, checking every 10 minutes, 10 pins. All are in Settings.
 
 ## Licence
 

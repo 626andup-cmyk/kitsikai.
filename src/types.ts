@@ -73,6 +73,28 @@ export interface Message {
   model?: string;
   /** For her messages: the name of the connection profile that wrote it. */
   profile?: string;
+  /**
+   * An image you sent (src/images.ts). Its `content` is then what the vision
+   * model saw in it, which is what every model gets instead of the image.
+   */
+  image?: MessageImage;
+}
+
+/** An image in a message: the file, and how reading it went. */
+export interface MessageImage {
+  /** The file's name in `data/images/`. */
+  file: string;
+  mimeType: string;
+  /** Its size in pixels, when known, so the chat can make room for it before it loads. */
+  width: number | null;
+  height: number | null;
+  /** "reading" while the vision model looks at it, then "read", or "failed". */
+  status: "reading" | "read" | "failed";
+  /** Why reading it failed. */
+  error: string | null;
+  /** The profile that read it, and its model. */
+  readBy: string | null;
+  model: string | null;
 }
 
 /**
@@ -97,6 +119,11 @@ export interface Settings {
    * a vision model, one that can read images. `""` for the first profile.
    */
   screenshotAssignment: string;
+  /**
+   * Who reads the images you send in chat (a vision model): a profile or
+   * roulette assignment, or "" for the same as screenshots.
+   */
+  imageAssignment: string;
   /** How many of a channel's most recent messages she sees. */
   historyLimit: number;
   /**

@@ -43,7 +43,9 @@ omg wait ${BUBBLE_MARKER} you actually said that to him?? ${BUBBLE_MARKER} legen
 
 One bubble is fine too, when that's all you'd send. Write only your texts: no quotation marks, no name in front, no narration or stage directions, no preamble.
 
-Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to show when time has passed. Never write them yourself.`;
+Notes in square brackets like [9:12 PM, 3 hours later] are added by the app to show when time has passed. Never write them yourself.
+
+When they send you an image, you get a description of it in square brackets, like [Sent an image: ...]. React to what's in it the way you would if you'd seen it; don't mention the description.`;
 
 /** Before today's and tomorrow's plans: where they come from. */
 export const PLANNER_NOTE = `From the planner you share with them (their shifts and plans; "not confirmed yet" means they haven't checked it):`;
@@ -201,7 +203,7 @@ export function toChatHistory(messages: Message[]): ChatMessage[] {
   const history: ChatMessage[] = [];
   let previousTime: Date | null = null;
   for (const message of messages) {
-    let content = message.content.trim();
+    let content = modelText(message).trim();
     if (content === "") continue;
     const time = new Date(message.createdAt);
     const marker = previousTime ? timeMarker(previousTime, time) : "";
@@ -214,6 +216,19 @@ export function toChatHistory(messages: Message[]): ChatMessage[] {
     else history.push({ role, content });
   }
   return history;
+}
+
+/**
+ * A message as every model sees it (her chat model, Jev, the writer, her
+ * tools): its text, or for an image you sent, what the vision model saw in
+ * it, in brackets (src/images.ts). So a text-only model can follow a chat
+ * with pictures in it.
+ */
+export function modelText(message: Message): string {
+  if (!message.image) return message.content;
+  const seen = message.content.replace(/\s+/g, " ").trim();
+  if (seen) return `[Sent an image: ${seen}]`;
+  return message.image.status === "reading" ? "[Sent an image. It's still being looked at.]" : "[Sent an image that couldn't be described.]";
 }
 
 /** How long a gap has to be (in minutes) to get a time note. */

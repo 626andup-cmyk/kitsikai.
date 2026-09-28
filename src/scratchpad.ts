@@ -39,7 +39,7 @@ import type { Events } from "./events.ts";
 import { confidentChoice, percent, probabilityOf, tier, type Answers, type Decider, type Question } from "./jev.ts";
 import type { Memory } from "./memory.ts";
 import { ApiError, CancelledError, type ApiOptions } from "./nanogpt.ts";
-import { formatClock } from "./prompt.ts";
+import { formatClock, modelText } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import type { Message, MemoryLogEntry, Note, Tracker } from "./types.ts";
 import { describeDraft, writeNotes, type WriteRequest, type Written } from "./writer.ts";
@@ -78,7 +78,7 @@ export function stamp(iso: string): string {
 /** A chat line for Jev and the writer: "[Sat 4:10 PM] them (NEW): ugh my head". */
 export function chatLine(message: Message, name: string, isNew = false): string {
   const who = message.author === "user" ? "them" : name;
-  return `[${stamp(message.createdAt)}] ${who}${isNew ? " (NEW)" : ""}: ${message.content.replace(/\s+/g, " ").trim()}`;
+  return `[${stamp(message.createdAt)}] ${who}${isNew ? " (NEW)" : ""}: ${modelText(message).replace(/\s+/g, " ").trim()}`;
 }
 
 /** "Saturday, September 26, 2026, 4:12 PM" */
@@ -102,7 +102,7 @@ export function describeTrackerNote(tracker: Tracker, value: string, date: Local
 
 /** A short quote of a message, for a note the writer couldn't write. */
 function quote(messages: Message[]): string {
-  const text = messages.map((m) => m.content).join(" ").replace(/\s+/g, " ").trim();
+  const text = messages.map(modelText).join(" ").replace(/\s+/g, " ").trim();
   return text.length > 120 ? `${text.slice(0, 117)}...` : text;
 }
 

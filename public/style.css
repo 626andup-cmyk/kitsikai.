@@ -594,6 +594,76 @@ textarea {
   color: var(--em-color);
 }
 
+/* An image you sent (src/images.ts): the picture, and what she sees in it. */
+.message-image {
+  margin: 4px 0 0;
+  max-width: min(100%, 320px);
+}
+
+.message-image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--radius-sm);
+  cursor: zoom-in;
+}
+
+/* What she sees: three lines, all of it when tapped. */
+.image-seen {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.image-seen.expanded {
+  display: block;
+}
+
+.image-seen[data-status="failed"] {
+  display: block;
+  color: var(--error-text);
+  cursor: default;
+}
+
+.image-seen[data-status="reading"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+}
+
+.image-seen-label {
+  font-weight: 600;
+}
+
+/* The big view of an image: tap anywhere to close. */
+.image-viewer {
+  max-width: 100vw;
+  max-height: 100vh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.image-viewer::backdrop {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.image-viewer img {
+  display: block;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+}
+
 .message-content strong {
   color: var(--text-strong);
 }
@@ -694,6 +764,47 @@ textarea {
 .composer-buttons .button {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* Images waiting to be sent, above the text box. */
+.composer-attachments {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.composer-attachment {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.composer-attachment img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.composer-attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.attach-button {
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .composer-input {

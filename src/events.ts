@@ -49,7 +49,9 @@ export type ServerEvent =
   /** Her notes, pins or processing log changed (stage 7: the advanced page reloads). */
   | { type: "memory" }
   /** The safeword hold started (`hold`) or ended (`null`); see src/intimacy.ts. */
-  | { type: "hold"; hold: Hold | null };
+  | { type: "hold"; hold: Hold | null }
+  /** One message changed in place: edited, or an image read (src/images.ts). */
+  | { type: "message"; message: Message };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

@@ -27,7 +27,7 @@ import { ProactiveLog, Reminders } from "./reminders.ts";
 import { Plans } from "./planner.ts";
 import { Profiles } from "./profiles.ts";
 import { Trackers } from "./trackers.ts";
-import type { Author, Channel, ChannelKind, Message, Settings } from "./types.ts";
+import type { Author, Channel, ChannelKind, Message, MessageImage, Settings } from "./types.ts";
 
 export { NotFoundError, ValidationError };
 
@@ -56,6 +56,7 @@ export function defaultSettings(): Settings {
     persona: readDefault("persona.md"),
     chatAssignment: "",
     screenshotAssignment: "",
+    imageAssignment: "",
     historyLimit: 40,
     appTheme: "classic",
     themeOptions: {},
@@ -112,6 +113,7 @@ export function validateSettings(input: unknown): Partial<Settings> {
   if (raw.screenshotAssignment !== undefined) {
     clean.screenshotAssignment = assignment(raw.screenshotAssignment, "screenshotAssignment") ?? "";
   }
+  if (raw.imageAssignment !== undefined) clean.imageAssignment = assignment(raw.imageAssignment, "imageAssignment") ?? "";
   if (raw.historyLimit !== undefined) clean.historyLimit = numberInRange(raw.historyLimit, "historyLimit", 1, 1000, true);
   // Only the id's form is checked here; the server checks the theme exists.
   if (raw.appTheme !== undefined) clean.appTheme = themeId(raw.appTheme, "appTheme");
@@ -343,6 +345,7 @@ interface MessageRow {
   edited_at: string | null;
   model: string | null;
   profile: string | null;
+  image: string | null;
 }
 
 function toChannel(row: ChannelRow): Channel {
@@ -370,10 +373,11 @@ function toMessage(row: MessageRow): Message {
     ...(row.edited_at ? { editedAt: row.edited_at } : {}),
     ...(row.model ? { model: row.model } : {}),
     ...(row.profile ? { profile: row.profile } : {}),
+    ...(row.image ? { image: JSON.parse(row.image) as MessageImage } : {}),
   };
 }
 
-const MESSAGE_COLUMNS = "id, channel_id, author, content, turn_id, created_at, edited_at, model, profile";
+const MESSAGE_COLUMNS = "id, channel_id, author, content, turn_id, created_at, edited_at, model, profile, image";
 const SELECT_MESSAGES = `SELECT ${MESSAGE_COLUMNS} FROM messages`;
 
 // ----------------------------------------------------------------- store
@@ -388,6 +392,8 @@ export interface NewMessage {
   profile?: string;
   /** Shared by messages written together. Defaults to `null`. */
   turnId?: string | null;
+  /** An image you sent (src/images.ts). */
+  image?: MessageImage;
 }
 
 export class Store {
@@ -685,8 +691,8 @@ export class Store {
     const id = input.id ?? crypto.randomUUID();
     this.db
       .query(
-        `INSERT INTO messages (id, channel_id, author, content, turn_id, created_at, model, profile)
-         VALUES ($id, $channelId, $author, $content, $turnId, $createdAt, $model, $profile)`,
+        `INSERT INTO messages (id, channel_id, author, content, turn_id, created_at, model, profile, image)
+         VALUES ($id, $channelId, $author, $content, $turnId, $createdAt, $model, $profile, $image)`,
       )
       .run({
         id,
@@ -697,8 +703,32 @@ export class Store {
         createdAt: input.createdAt ?? this.clock().toISOString(),
         model: input.model ?? null,
         profile: input.profile ?? null,
+        image: input.image ? JSON.stringify(input.image) : null,
       });
     return this.getMessage(id);
+  }
+
+  /**
+   * Update an image message: how reading it went, and (when the vision model
+   * has read it) what it saw, as the message's text. Text from reading isn't
+   * an edit, so it clears "(edited)".
+   */
+  updateImage(id: string, changes: Partial<MessageImage>, content?: string): Message {
+    const message = this.getMessage(id);
+    if (!message.image) throw new ValidationError("That message has no image.");
+    this.db
+      .query(
+        `UPDATE messages SET image = $image, content = COALESCE($content, content),
+           edited_at = CASE WHEN $content IS NULL THEN edited_at ELSE NULL END WHERE id = $id`,
+      )
+      .run({ id, image: JSON.stringify({ ...message.image, ...changes }), content: content ?? null });
+    return this.getMessage(id);
+  }
+
+  /** The file names of every image still in a message (the rest can go: `ImageFiles.sweep`). */
+  imageFiles(): Set<string> {
+    const rows = this.db.query("SELECT image FROM messages WHERE image IS NOT NULL").all() as { image: string }[];
+    return new Set(rows.map((row) => (JSON.parse(row.image) as MessageImage).file));
   }
 
   /**

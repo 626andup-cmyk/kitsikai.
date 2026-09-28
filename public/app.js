@@ -69,6 +69,14 @@ const state = {
   notificationsAvailable: false,
   /** The safeword hold, {since, messageId}, while it's on (src/intimacy.ts); else null. */
   intimacyHold: null,
+  /** Images picked in the composer, waiting to be sent: {image (base64), mimeType, width, height, url (a preview)}. */
+  attachments: [],
+  /**
+   * The newest version of messages changed in place (a `message` event), by
+   * id: an image can be read before its upload's answer arrives, and this
+   * keeps the answer from showing it as still being read.
+   */
+  changed: new Map(),
 };
 
 // Shortcut for looking up elements by id.
@@ -203,7 +211,8 @@ async function loadState() {
 function checkForUpdate(serverVersion) {
   if (!serverVersion || !state.appVersion || serverVersion === state.appVersion) return;
 
-  const unsentText = els.input.value.trim() !== "" || [...state.drafts.values()].some((d) => d.trim() !== "");
+  const unsentText =
+    els.input.value.trim() !== "" || [...state.drafts.values()].some((d) => d.trim() !== "") || state.attachments.length > 0;
   const busy = state.busy.size > 0 || state.editingId !== null || document.querySelector("dialog[open]");
   if (!unsentText && !busy) {
     location.reload();
@@ -219,12 +228,15 @@ function checkForUpdate(serverVersion) {
  * Also used to refresh the open channel after changes.
  */
 async function openChannel(channelId) {
-  // Keep whatever you'd typed in the channel you're leaving.
+  // Keep whatever you'd typed in the channel you're leaving. Images you'd
+  // picked but not sent aren't kept.
   if (state.channelId) state.drafts.set(state.channelId, els.input.value);
+  clearAttachments();
 
   state.channelId = channelId;
   state.editingId = null;
   state.messages = [];
+  state.changed.clear();
   state.toolCalls = [];
   state.unread.delete(channelId);
   resetReveal();
@@ -423,8 +435,9 @@ function receiveMessages(channelId, messages, replacedIds = [], toolCalls = []) 
   // Her actions this turn (stage 6), shown under its last bubble.
   for (const call of toolCalls) if (!state.toolCalls.some((c) => c.id === call.id)) state.toolCalls.push(call);
   const known = (id) => state.messages.some((m) => m.id === id) || reveal.queue.some((m) => m.id === id);
-  for (const message of messages) {
-    if (known(message.id)) continue;
+  for (const original of messages) {
+    if (known(original.id)) continue;
+    const message = state.changed.get(original.id) ?? original;
     if (message.author === "user") {
       // Your bubble: it replaces its faded placeholder, if there's one.
       const placeholder = state.messages.find((m) => m.pending && m.content === message.content);
@@ -535,9 +548,25 @@ async function stopTurn() {
 async function sendMessage() {
   const channelId = state.channelId;
   const content = els.input.value.trim();
-  if (!channelId || content === "") return;
+  if (!channelId || (content === "" && state.attachments.length === 0)) return;
 
   hideError();
+  // Images go first, each its own bubble, then your text.
+  if (state.attachments.length) {
+    const attachments = state.attachments;
+    state.attachments = [];
+    renderAttachments();
+    for (const [i, attachment] of attachments.entries()) {
+      if (!(await sendImage(channelId, attachment))) {
+        // Not sent: it and the ones after it go back in the composer, for "Try again".
+        state.attachments = [...attachments.slice(i), ...state.attachments];
+        renderAttachments();
+        return;
+      }
+    }
+  }
+  if (content === "") return;
+
   // Show your bubble straight away, faded, until the server has it.
   const placeholder = {
     id: `pending-${++placeholderCount}`,
@@ -726,6 +755,15 @@ function handleEvent(event) {
     case "hold":
       state.intimacyHold = event.hold;
       renderHold();
+      break;
+    case "message":
+      // One message changed: edited, or an image was read.
+      if (event.message.channelId === state.channelId) state.changed.set(event.message.id, event.message);
+      if (state.messages.some((m) => m.id === event.message.id)) {
+        state.messages = state.messages.map((m) => (m.id === event.message.id ? event.message : m));
+        // Don't pull the rug out from under an edit in progress.
+        if (state.editingId !== event.message.id) renderMessages();
+      }
       break;
   }
 }
@@ -1001,14 +1039,19 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
   root.append(avatar, meta);
 
   if (state.editingId === message.id) {
+    if (message.image) root.append(renderImage(message, { caption: false }));
     root.append(renderEditor(message));
     return root;
   }
 
-  const content = document.createElement("div");
-  content.className = "message-content";
-  content.innerHTML = formatText(message.content);
-  root.append(content);
+  if (message.image) {
+    root.append(renderImage(message));
+  } else {
+    const content = document.createElement("div");
+    content.className = "message-content";
+    content.innerHTML = formatText(message.content);
+    root.append(content);
+  }
 
   // A message that's still being sent has no actions yet.
   if (pending) return root;
@@ -1018,12 +1061,13 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
   actions.className = "message-actions";
   if (showRegenerate) actions.classList.add("always");
   actions.append(
-    actionButton("Edit", () => {
+    actionButton(message.image ? "Edit what she sees" : "Edit", () => {
       state.editingId = message.id;
       renderMessages();
     }),
-    actionButton("Delete", () => deleteMessage(message.id), busy),
   );
+  if (message.image) actions.append(actionButton("Read again", () => readImageAgain(message.id), message.image.status === "reading"));
+  actions.append(actionButton("Delete", () => deleteMessage(message.id), busy));
   if (showRegenerate) {
     actions.append(actionButton("Regenerate", () => regenerate(), busy));
     if (state.profiles.length > 1) actions.append(actionButton("Regenerate with…", openRegenerateWith, busy));
@@ -1035,6 +1079,12 @@ function renderMessage(message, { continued = false, regenerate: showRegenerate 
 /** The inline editor shown in place of a message's text while editing. */
 function renderEditor(message) {
   const wrapper = document.createElement("div");
+  if (message.image) {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = `What ${herName()} sees in the image: every model gets this instead of the picture. Fix anything the vision model got wrong.`;
+    wrapper.append(hint);
+  }
   const box = document.createElement("textarea");
   box.className = "edit-box";
   box.value = message.content;
@@ -1145,6 +1195,203 @@ function formatTime(iso) {
 
 function scrollToBottom() {
   els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+// ------------------------------------------------------------------ images
+
+/** The longest side an image is sent at, in pixels, and the size it's sent as-is under. */
+const IMAGE_MAX_SIDE = 2048;
+const IMAGE_KEEP_BYTES = 2_000_000;
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+
+/**
+ * Get a picked image ready to send: a big phone photo is shrunk (and sent as
+ * a JPEG), a small PNG, JPEG, WebP or GIF goes as it is.
+ */
+async function prepareImage(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    throw new Error(`${file.name || "That file"} isn't an image this browser can open.`);
+  }
+  let { width, height } = bitmap;
+  if (IMAGE_TYPES.includes(file.type) && file.size <= IMAGE_KEEP_BYTES && Math.max(width, height) <= IMAGE_MAX_SIDE) {
+    bitmap.close();
+    return { image: await readAsBase64(file), mimeType: file.type, width, height, url: URL.createObjectURL(file) };
+  }
+  const scale = Math.min(1, IMAGE_MAX_SIDE / Math.max(width, height));
+  width = Math.round(width * scale);
+  height = Math.round(height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  // JPEG has no transparency: see-through parts become white, not black.
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, width, height);
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+  if (!blob) throw new Error("Couldn't shrink the image.");
+  return { image: await readAsBase64(blob), mimeType: "image/jpeg", width, height, url: URL.createObjectURL(blob) };
+}
+
+/** Images were picked (or pasted): get them ready, and show them above the text box. */
+async function addAttachments(files) {
+  const channelId = state.channelId;
+  for (const file of files) {
+    try {
+      const attachment = await prepareImage(file);
+      if (state.channelId !== channelId) return URL.revokeObjectURL(attachment.url);
+      state.attachments.push(attachment);
+    } catch (error) {
+      showError(error.message, null);
+    }
+  }
+  renderAttachments();
+  els.input.focus();
+}
+
+function clearAttachments() {
+  for (const attachment of state.attachments) URL.revokeObjectURL(attachment.url);
+  state.attachments = [];
+  renderAttachments();
+}
+
+/** The images waiting to be sent, each with a ✕ to take it out. */
+function renderAttachments() {
+  const strip = $("composer-attachments");
+  strip.hidden = state.attachments.length === 0;
+  strip.replaceChildren(
+    ...state.attachments.map((attachment) => {
+      const item = document.createElement("div");
+      item.className = "composer-attachment";
+      const img = document.createElement("img");
+      img.src = attachment.url;
+      img.alt = "An image to send";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "composer-attachment-remove";
+      remove.setAttribute("aria-label", "Don't send this image");
+      remove.textContent = "✕";
+      remove.addEventListener("click", () => {
+        URL.revokeObjectURL(attachment.url);
+        state.attachments = state.attachments.filter((a) => a !== attachment);
+        renderAttachments();
+      });
+      item.append(img, remove);
+      return item;
+    }),
+  );
+}
+
+/** Send one image: a faded bubble at once, the real one when the server has it. Returns whether it worked. */
+async function sendImage(channelId, attachment) {
+  const placeholder = {
+    id: `pending-${++placeholderCount}`,
+    pending: true,
+    channelId,
+    author: "user",
+    content: "",
+    turnId: null,
+    createdAt: new Date().toISOString(),
+    image: { url: attachment.url, width: attachment.width, height: attachment.height, status: "sending" },
+  };
+  state.messages.push(placeholder);
+  renderMessages();
+  scrollToBottom();
+  try {
+    const { image, mimeType, width, height } = attachment;
+    const { userMessages } = await api("POST", channelPath("images", channelId), { image, mimeType, width, height });
+    if (state.channelId === channelId) {
+      const saved = state.changed.get(userMessages[0].id) ?? userMessages[0];
+      const index = state.messages.indexOf(placeholder);
+      if (index >= 0) {
+        if (state.messages.some((m) => m.id === saved.id)) state.messages.splice(index, 1);
+        else state.messages[index] = saved;
+      }
+      renderMessages();
+    }
+    URL.revokeObjectURL(attachment.url);
+    return true;
+  } catch (error) {
+    state.messages = state.messages.filter((m) => m !== placeholder);
+    renderMessages();
+    showError(`Couldn't send the image: ${error.message}`, sendMessage);
+    return false;
+  }
+}
+
+/** An image in a bubble: the picture (tap for a big view), and what she sees in it. */
+function renderImage(message, { caption = true } = {}) {
+  const figure = document.createElement("figure");
+  figure.className = "message-image";
+  const img = document.createElement("img");
+  img.src = message.pending ? message.image.url : `/api/images/${encodeURIComponent(message.id)}`;
+  img.alt = message.content || "An image you sent";
+  // Its size, so the chat makes room before it loads (CSS scales it down).
+  if (message.image.width && message.image.height) {
+    img.width = message.image.width;
+    img.height = message.image.height;
+  }
+  img.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openImageViewer(img.src, img.alt);
+  });
+  figure.append(img);
+  if (caption && !message.pending) figure.append(renderSeen(message));
+  return figure;
+}
+
+/**
+ * Under an image: what she sees in it (the vision model's description,
+ * which is what every model gets instead of the picture), or how reading
+ * it is going. Tap to see all of it.
+ */
+function renderSeen(message) {
+  const seen = document.createElement("figcaption");
+  seen.className = "image-seen";
+  const text = message.content.trim();
+  const status = text ? "read" : message.image.status;
+  seen.dataset.status = status;
+  if (status === "reading") {
+    const dots = document.createElement("span");
+    dots.className = "typing-dots";
+    dots.setAttribute("aria-hidden", "true");
+    dots.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+    seen.append(dots, ` Looking at the image…`);
+  } else if (status === "failed") {
+    seen.textContent = `⚠️ Couldn't read the image: ${message.image.error ?? "no reason given"}. Tap it for "Read again", or "Edit what she sees" to describe it yourself.`;
+  } else {
+    const label = document.createElement("strong");
+    label.className = "image-seen-label";
+    label.textContent = `What ${herName()} sees${message.editedAt ? " (you edited it)" : ""}: `;
+    seen.append(label, text);
+    seen.title = "Tap to see all of it";
+    seen.addEventListener("click", (event) => {
+      event.stopPropagation();
+      seen.classList.toggle("expanded");
+    });
+  }
+  return seen;
+}
+
+function openImageViewer(src, alt) {
+  $("image-viewer-img").src = src;
+  $("image-viewer-img").alt = alt;
+  $("image-viewer").showModal();
+}
+
+/** "Read again": the vision model looks at the image again. */
+async function readImageAgain(id) {
+  try {
+    const { message } = await api("POST", `/api/messages/${encodeURIComponent(id)}/read-image`, {});
+    state.messages = state.messages.map((m) => (m.id === id ? message : m));
+    renderMessages();
+  } catch (error) {
+    showError(error.message, null);
+  }
 }
 
 // ------------------------------------------------------------------ errors
@@ -1733,6 +1980,7 @@ function openSettings() {
   form.persona.value = s.persona;
   fillAssignmentSelect(form.chatAssignment, s.chatAssignment);
   fillAssignmentSelect(form.screenshotAssignment, s.screenshotAssignment, null, true);
+  fillAssignmentSelect(form.imageAssignment, s.imageAssignment, "Same as screenshots", true);
   form.historyLimit.value = s.historyLimit;
   form.replyDebounceSeconds.value = s.replyDebounceSeconds;
   form.typingBaseMs.value = s.typingBaseMs;
@@ -1773,6 +2021,7 @@ async function saveSettings(event) {
       persona: form.persona.value,
       chatAssignment: form.chatAssignment.value,
       screenshotAssignment: form.screenshotAssignment.value,
+      imageAssignment: form.imageAssignment.value,
       // Number boxes give text; the server wants numbers.
       historyLimit: Number(form.historyLimit.value),
       replyDebounceSeconds: Number(form.replyDebounceSeconds.value),
@@ -2443,6 +2692,19 @@ $("notice-dismiss").addEventListener("click", () => ($("notice").hidden = true))
 els.messages.addEventListener("scroll", watchForStutter, { passive: true });
 $("update-reload").addEventListener("click", () => location.reload());
 $("hold-lift").addEventListener("click", liftHold);
+$("attach-button").addEventListener("click", () => $("attach-input").click());
+$("attach-input").addEventListener("change", (event) => {
+  addAttachments([...event.target.files]);
+  event.target.value = ""; // so picking the same image again still counts
+});
+// Pasting an image into the text box attaches it.
+els.input.addEventListener("paste", (event) => {
+  const files = [...(event.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+  if (files.length === 0) return;
+  event.preventDefault();
+  addAttachments(files);
+});
+$("image-viewer").addEventListener("click", () => $("image-viewer").close());
 $("hold-status-lift").addEventListener("click", liftHold);
 
 // Coming back to the app (switching to it, unlocking the phone): catch up on

@@ -27,7 +27,7 @@ export type FakeReply =
    * text alongside. `arguments` can be JSON text or an object (some
    * providers send objects).
    */
-  | { toolCalls: { name: string; arguments: string | object }[]; content?: string | null };
+  | { toolCalls: { name: string; arguments: string | object; extra?: Record<string, unknown> }[]; content?: string | null };
 
 /**
  * How the fake Jev answers one request (stage 7): an answer per question id,
@@ -115,6 +115,8 @@ export function startFakeNanoGpt(): FakeNanoGpt {
                     id: `call_${fake.requests.length}_${i}`,
                     type: "function",
                     function: { name: call.name, arguments: call.arguments },
+                    // What else a provider puts on a call: Gemini's thought signature, say.
+                    ...call.extra,
                   })),
                 },
                 finish_reason: "tool_calls",

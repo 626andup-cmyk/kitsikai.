@@ -38,6 +38,12 @@ export interface NativeToolCall {
   name: string;
   /** The arguments as the model wrote them: JSON text, which may be broken. */
   arguments: string;
+  /**
+   * Anything else the provider put on the call, to send back with it as it
+   * came. Gemini puts its "thought signature" here (`extra_content`), and
+   * expects it back in the next request, or it loses its train of thought.
+   */
+  extra: Record<string, unknown>;
 }
 
 /** The parameters of one generation request. */
@@ -183,11 +189,13 @@ function readToolCalls(value: unknown): NativeToolCall[] {
     const name = call?.function?.name;
     if (typeof name !== "string" || name === "") return [];
     const args = call.function?.arguments;
+    const { id: _id, type: _type, function: _function, index: _index, ...extra } = raw as Record<string, unknown>;
     return [
       {
         id: typeof call.id === "string" && call.id ? call.id : `call_${index}`,
         name,
         arguments: typeof args === "string" ? args : JSON.stringify(args ?? {}),
+        extra,
       },
     ];
   });

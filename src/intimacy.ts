@@ -290,5 +290,6 @@ export function isSafeword(text: string): boolean {
  */
 export function safewordIn(messages: Message[]): Message | null {
   const herLast = messages.findLastIndex((m) => m.author === "kitsikai");
-  return messages.slice(herLast + 1).find((m) => m.author === "user" && isSafeword(m.content)) ?? null;
+  // Only what you typed: an image's description is the vision model's words, not yours.
+  return messages.slice(herLast + 1).find((m) => m.author === "user" && !m.image && isSafeword(m.content)) ?? null;
 }

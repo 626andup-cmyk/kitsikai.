@@ -261,9 +261,16 @@
             <button id="error-dismiss" type="button" class="link-button" aria-label="Dismiss">✕</button>
           </div>
 
+          <!-- Images you've picked, waiting to be sent (src/images.ts). -->
+          <div id="composer-attachments" class="composer-attachments" hidden></div>
+
           <form id="composer-form" class="composer-row">
             <textarea id="composer-input" class="composer-input" rows="1" aria-label="Your message"></textarea>
             <div class="composer-buttons">
+              <button id="attach-button" type="button" class="button attach-button" title="Send an image" aria-label="Send an image">
+                🖼️
+              </button>
+              <input id="attach-input" type="file" accept="image/*" multiple hidden />
               <span class="spacer"></span>
               <button id="turn-button" type="button" class="button" title="Let her text without a new message from you">
                 Her turn
@@ -310,6 +317,13 @@
         <p class="hint">
           The profile that reads your schedule screenshots in the planner. It needs a vision model (one that can
           read images), like Gemini Flash.
+        </p>
+
+        <label for="setting-image-assignment">Images you send are read by</label>
+        <select id="setting-image-assignment" name="imageAssignment"></select>
+        <p class="hint">
+          When you send her a picture, this vision model describes it, and the description is what she (and every other
+          model) gets instead, so any model can follow along. You can see it under the image, and fix it.
         </p>
 
         <label for="setting-history">History</label>
@@ -1034,6 +1048,11 @@
           <button type="submit" class="button button-primary">Save</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- An image from the chat, big. Tap anywhere to close. -->
+    <dialog id="image-viewer" class="image-viewer">
+      <img id="image-viewer-img" alt="" />
     </dialog>
 
     <!-- Every call to Jev from the last 36 hours, exactly as sent and received (src/jevlog.ts). -->

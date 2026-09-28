@@ -7,6 +7,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { runTool } from "../src/tools.ts";
 import { CHROMIUM, closeBrowser, openApp, type BrowserApp } from "./browser.ts";
+import { testPng } from "./helpers.ts";
 
 const describeUi = CHROMIUM ? describe : describe.skip;
 
@@ -412,6 +413,50 @@ describeUi("the app in a browser", () => {
     await page.waitForSelector('.day-stickers .log-sticker:has-text("headache")');
     await page.click('.day-stickers .log-sticker:has-text("headache")');
     expect(await page.textContent("#log-entry-source")).toBe("She logged this herself, from chat.");
+    expect(t.errors).toEqual([]);
+  });
+
+  test("images: pick one, send it with text, see what she sees, fix it, view it big", async () => {
+    const { page, app, fake } = t;
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    const png = { name: "dog.png", mimeType: "image/png", buffer: testPng(80, 60) };
+
+    // Picked, then taken out again: nothing is sent.
+    await page.setInputFiles("#attach-input", png);
+    await page.waitForSelector(".composer-attachment img");
+    await page.click(".composer-attachment-remove");
+    expect(await page.isVisible("#composer-attachments")).toBe(false);
+
+    fake.replies.push({ content: "A puppy on a blue couch.", delayMs: 300 }, { content: "cute!!" });
+    await page.setInputFiles("#attach-input", png);
+    await page.waitForSelector(".composer-attachment img");
+    await page.fill("#composer-input", "look");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector('.image-seen[data-status="reading"]');
+    await page.waitForSelector('.image-seen[data-status="read"]');
+    expect(await page.textContent(".image-seen")).toBe("What Kitsikai sees: A puppy on a blue couch.");
+    await page.waitForSelector('.message[data-author="kitsikai"]:has-text("cute!!")');
+    expect(await page.$$eval('.message[data-author="user"] .message-content', (nodes) => nodes.map((n) => n.textContent))).toEqual(["look"]);
+    const [sent] = app.store.getMessages(app.store.listChannels()[0]!.id).filter((m) => m.image);
+    expect(await page.getAttribute(".message-image img", "src")).toBe(`/api/images/${sent!.id}`);
+
+    // Fix what she sees.
+    await page.click(".message-image img");
+    await page.waitForSelector("#image-viewer[open]");
+    await page.click("#image-viewer");
+    await page.waitForSelector("#image-viewer", { state: "hidden" });
+    await page.click(`.message[data-message-id="${sent!.id}"]`);
+    expect(await page.isVisible(`.message[data-message-id="${sent!.id}"] button:has-text("Read again")`)).toBe(true);
+    await page.click(`.message[data-message-id="${sent!.id}"] button:has-text("Edit what she sees")`);
+    await page.fill(".edit-box", "A puppy on a green couch.");
+    await page.click('.message-actions button:has-text("Save")');
+    await page.waitForSelector('.image-seen:has-text("(you edited it)")');
+    expect(app.store.getMessage(sent!.id).content).toBe("A puppy on a green couch.");
+
+    // Its own setting, next to the screenshot reader.
+    await page.click("#settings-button");
+    expect(await page.$eval("#setting-image-assignment", (s: any) => s.options[s.selectedIndex].text)).toBe("Same as screenshots");
+    await page.click("#settings-dialog [data-close]");
     expect(t.errors).toEqual([]);
   });
 

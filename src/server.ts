@@ -68,6 +68,10 @@
  *   POST   /api/presence                  The app says whether it's on screen (for notifications)
  *   POST   /api/intimacy/lift             "Bring her back": end the safeword hold
  *
+ *   POST   /api/channels/:id/images       Send an image: saved, shown, and read by the vision model (src/images.ts)
+ *   GET    /api/images/:id                The image in a message, by the message's id
+ *   POST   /api/messages/:id/read-image   Have the vision model read a message's image again
+ *
  *   GET    /api/messages/:id              One message (to show where a log entry came from)
  *   PATCH  /api/messages/:id              Edit a message's text
  *   DELETE /api/messages/:id              Delete one message
@@ -109,6 +113,7 @@ import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts"
 import { Proactive } from "./proactive.ts";
 import { registerPrompt } from "./intimacy.ts";
 import { JEV_LOG_HOURS } from "./jevlog.ts";
+import { checkUpload, ImageFiles, ImageReader } from "./images.ts";
 import { CatchUp } from "./catchup.ts";
 import { ImportError, importChat, MAX_IMPORT_CHARS, parseChat, previewOf, type ImportTarget } from "./importer.ts";
 import { dueReminders } from "./reminders.ts";
@@ -176,6 +181,9 @@ export interface App {
   /** Whether the app is on screen, for notifications (src/notify.ts). */
   presence: Presence;
   notifier: Notifier;
+  /** Reading the images you send (src/images.ts). */
+  images: ImageReader;
+  imageFiles: ImageFiles;
 }
 
 /**
@@ -267,7 +275,12 @@ export function createApp(config: Config, options: AppOptions = {}): App {
   const kitsikai = new Kitsikai(store, api, now, events, decider);
   const scratchpad = new Scratchpad({ store, api, decider, events, clock: now });
   const processing = new Processing({ store, api, decider, events, clock: now });
-  const replies = new Replies(store, kitsikai, events, scratchpad);
+  // Images you send in chat: saved in data/images, read by a vision model (src/images.ts).
+  const imageFiles = new ImageFiles(config.dataDir);
+  const images = new ImageReader({ store, api, files: imageFiles, events });
+  // Files of images whose messages are gone (deleted while the server was off, say).
+  imageFiles.sweep(store.imageFiles());
+  const replies = new Replies(store, kitsikai, events, scratchpad, images);
   // Stage 8: texting first, and notifications.
   const proactive = new Proactive({ store, api, decider, events, clock: now, kitsikai, replies });
   const scheduler = new Scheduler(store, processing, now, proactive);
@@ -374,6 +387,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         ensureTheme(update.appTheme);
         if (update.chatAssignment) store.profiles.checkAssignment(update.chatAssignment);
         if (update.screenshotAssignment) store.profiles.checkAssignment(update.screenshotAssignment);
+        if (update.imageAssignment) store.profiles.checkAssignment(update.imageAssignment);
         if (update.writerAssignment) store.profiles.checkAssignment(update.writerAssignment);
         if (update.decisionFallback) store.profiles.checkAssignment(update.decisionFallback);
         if (update.homeChannelId && store.getChannel(update.homeChannelId).kind !== "text") {
@@ -429,6 +443,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         replies.cancel(id!);
         kitsikai.cancel(id!);
         store.deleteChannel(id!);
+        imageFiles.sweep(store.imageFiles());
         return json({ settings: store.getSettings(), channels: channelsChanged() });
       },
     },
@@ -465,6 +480,22 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     },
     {
       method: "POST",
+      pattern: "/api/channels/:id/images",
+      // An image you send: its own bubble, shown at once, and read by the
+      // vision model in the background (src/images.ts). She waits for it.
+      handler: async (request, { id }) => {
+        const upload = checkUpload(await readObject(request));
+        if (store.getChannel(id!).kind !== "text") throw new HttpError(400, "You can only send images in text channels.");
+        const file = imageFiles.save(upload.data, upload.mimeType);
+        const image = { file, mimeType: upload.mimeType, width: upload.width, height: upload.height, status: "reading" as const, error: null, readBy: null, model: null };
+        const message = store.addMessage({ channelId: id!, author: "user", content: "", image, turnId: userTurnId(id!) });
+        events.publish({ type: "messages", channelId: id!, messages: [message] });
+        replies.bubbleSent(id!);
+        return json({ userMessages: [images.read(message)] });
+      },
+    },
+    {
+      method: "POST",
       pattern: "/api/channels/:id/typing",
       handler: (_request, { id }) => {
         store.getChannel(id!); // 404 for an unknown channel
@@ -480,6 +511,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         replies.cancel(id!);
         const ids = store.getMessages(id!).map((m) => m.id);
         store.clearMessages(id!);
+        imageFiles.sweep(store.imageFiles());
         events.publish({ type: "deleted", channelId: id!, ids });
         return json({ ok: true });
       },
@@ -487,7 +519,10 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     {
       method: "POST",
       pattern: "/api/channels/:id/turn",
-      handler: async (_request, { id }) => json(turnResult(await kitsikai.takeTurn(id!, "continue"))),
+      handler: async (_request, { id }) => {
+        await images.settled(id!); // she doesn't answer a picture she hasn't seen
+        return json(turnResult(await kitsikai.takeTurn(id!, "continue")));
+      },
     },
     {
       method: "POST",
@@ -505,6 +540,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
           throw new HttpError(400, "The last message isn't hers, so there's nothing to regenerate.");
         }
         // Generate first, and only delete the old reply once the new one exists.
+        await images.settled(id!);
         const result = await kitsikai.takeTurn(id!, "regenerate", { replacing: replacedIds, profileId });
         return json({ ...turnResult(result), replacedIds: result.replaced });
       },
@@ -831,8 +867,31 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     {
       method: "PATCH",
       pattern: "/api/messages/:id",
-      handler: async (request, { id }) =>
-        json({ message: store.editMessage(id!, requireText(await readJson(request), "content")) }),
+      // For an image, this is what she sees in it.
+      handler: async (request, { id }) => {
+        const message = store.editMessage(id!, requireText(await readJson(request), "content"));
+        events.publish({ type: "message", message });
+        return json({ message });
+      },
+    },
+    {
+      method: "POST",
+      pattern: "/api/messages/:id/read-image",
+      // "Read again": the vision model looks at the image again.
+      handler: (_request, { id }) => json({ message: images.read(store.getMessage(id!)) }),
+    },
+    {
+      method: "GET",
+      pattern: "/api/images/:id",
+      // The image in a message, by the message's id.
+      handler: async (_request, { id }) => {
+        const image = store.getMessage(id!).image;
+        if (!image) throw new NotFoundError("image");
+        const file = Bun.file(imageFiles.path(image.file));
+        if (!(await file.exists())) throw new NotFoundError("image");
+        // A message's image never changes, so the browser can keep it.
+        return new Response(file, { headers: { "Content-Type": image.mimeType, "Cache-Control": "private, max-age=31536000, immutable" } });
+      },
     },
     {
       method: "DELETE",
@@ -841,6 +900,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
         const { channelId } = store.getMessage(id!);
         ensureIdle(channelId);
         store.deleteMessage(id!);
+        imageFiles.sweep(store.imageFiles());
         events.publish({ type: "deleted", channelId, ids: [id!] });
         return json({ ok: true });
       },
@@ -982,7 +1042,7 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     }
   }
 
-  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler, proactive, presence, notifier, catchUp };
+  return { fetch, store, kitsikai, events, replies, themes, decider, scratchpad, processing, scheduler, proactive, presence, notifier, catchUp, images, imageFiles };
 }
 
 /** Turn a thrown error into the right JSON error response. */

@@ -18,7 +18,7 @@
 
 import { dateOf } from "./dates.ts";
 import type { Message, MemoryLogEntry } from "./types.ts";
-import { formatClock } from "./prompt.ts";
+import { formatClock, modelText } from "./prompt.ts";
 import type { MemoryDeps } from "./scratchpad.ts";
 import { updateCatchUp } from "./writer.ts";
 
@@ -39,7 +39,7 @@ export interface CatchUpStatus {
 function line(message: Message, name: string): string {
   const date = new Date(message.createdAt);
   const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  return `[${day}, ${formatClock(date)}] ${message.author === "user" ? "them" : name}: ${message.content.replace(/\s+/g, " ").trim()}`;
+  return `[${day}, ${formatClock(date)}] ${message.author === "user" ? "them" : name}: ${modelText(message).replace(/\s+/g, " ").trim()}`;
 }
 
 /** Split a chat into parts of about `PART_CHARS`, never splitting a message. */

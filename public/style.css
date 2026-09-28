@@ -1410,6 +1410,41 @@ button:disabled {
   padding: 0 16px 4px 68px;
 }
 
+/* A planner change she offered or made (src/planchanges.ts), under her reply. */
+.plan-change {
+  margin: 4px 16px 8px 68px;
+  padding: 8px 12px;
+  border: var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  font-size: 14px;
+}
+
+.plan-change p {
+  margin: 0;
+}
+
+.plan-change-before,
+.plan-change-status {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.plan-change[data-status="applied"] .plan-change-status {
+  color: var(--text);
+}
+
+.plan-change[data-status="failed"] .plan-change-status {
+  color: var(--error-text);
+}
+
+.plan-change-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .activity-summary {
   padding: 2px 0;
   border: 0;

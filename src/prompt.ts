@@ -15,9 +15,11 @@
  *   4. Right now               the date and time on the phone
  *   5. Today and tomorrow      your plans for both days, and whether you're at work (stage 6)
  *   6. Reminders due           reminders that have gone off and aren't sent yet (stage 8)
- *   7. Your notes and pins     her scratchpad, pins, what she'll ask you about (stage 7)
- *   8. Tools                   how to use her lookups, if the profile can (stage 6)
- *   9. Model notes             the connection profile's notes on this model
+ *   7. Planner changes         ones she offered, waiting for your yes or just settled
+ *   8. Your notes and pins     her scratchpad, pins, what she'll ask you about (stage 7)
+ *   9. Between you right now   the intimacy register, if there is one (src/intimacy.ts)
+ *  10. Tools                   how to use her lookups, if the profile can (stage 6)
+ *  11. Model notes             the connection profile's notes on this model
  *
  * Later stages add more sections in between (channels, plans, her notes and
  * pins), but the shape stays the same.
@@ -51,7 +53,7 @@ When they send you an image, you get a description of it in square brackets, lik
 export const PLANNER_NOTE = `From the planner you share with them (their shifts and plans; "not confirmed yet" means they haven't checked it):`;
 
 /** How to use her tools (stage 6: lookups; stage 7: her notes). */
-export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), what you said in other channels (read_channel), anything older you two said (search_history), and things you've unpinned (look_in_drawer). You can jot a note on your scratchpad (jot_note) when something's worth remembering, or when they ask you to pin something or let a pin go. And you can keep their trackers the way they can: make one when they ask you to keep track of something (make_tracker), put a sticker on a day when they tell you how it went (log_sticker), and take one off if it's wrong (remove_sticker).
+export const TOOL_GUIDANCE = `You can look things up: their plans further out (look_up_plans, find_plans), the things they asked you to keep an eye on and what's been logged (list_trackers, look_up_log), what you said in other channels (read_channel), anything older you two said (search_history), and things you've unpinned (look_in_drawer). You can jot a note on your scratchpad (jot_note) when something's worth remembering, or when they ask you to pin something or let a pin go. You can change their planner too: add_plan, change_plan, remove_plan (get a plan_id from look_up_plans or find_plans first). If they asked you to, it's done; if it's your idea, it waits for their yes, so ask them. And you can keep their trackers the way they can: make one when they ask you to keep track of something (make_tracker), put a sticker on a day when they tell you how it went (log_sticker), and take one off if it's wrong (remove_sticker).
 
 Use tools only when they help: most texts need none. If a plan or something logged comes up and it isn't in front of you, look it up instead of guessing. Never mention tools or looking things up: just know it, like a friend who remembers. If there's nothing you'd text, you can call do_nothing.`;
 
@@ -97,6 +99,8 @@ export interface PromptInput {
   reminders?: string | null;
   /** Her notes and pins, in words (see `memoryForPrompt` in src/memory.ts). */
   memory?: string;
+  /** Planner changes she offered, waiting or just settled (see src/planchanges.ts). */
+  planChanges?: string | null;
   /** Why she's texting first (stage 8): ends the stack instead of the usual note. */
   note?: string;
   /** Whether she can use tools this turn (adds guidance on them). */
@@ -119,6 +123,7 @@ export function buildPromptStack(input: PromptInput): ChatMessage[] {
     { title: "Right now", content: describeNow(now) },
     { title: "Today and tomorrow", content: input.todayAndTomorrow ? `${PLANNER_NOTE}\n\n${input.todayAndTomorrow}` : null },
     { title: "Reminders due", content: input.reminders },
+    { title: "Planner changes you offered", content: input.planChanges ?? null },
     { title: "Your notes and pins", content: input.memory },
     { title: "Between you right now", content: input.registerPrompt?.trim() || null },
     { title: "Tools", content: tools ? TOOL_GUIDANCE : null },

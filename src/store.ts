@@ -22,6 +22,7 @@ import { openDatabase } from "./db.ts";
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { IntimacyHold } from "./hold.ts";
 import { JevLog } from "./jevlog.ts";
+import { PlanChanges } from "./planchanges.ts";
 import { Memory } from "./memory.ts";
 import { ProactiveLog, Reminders } from "./reminders.ts";
 import { Plans } from "./planner.ts";
@@ -416,6 +417,8 @@ export class Store {
   readonly intimacy: IntimacyHold;
   /** Every Jev call from the last 36 hours (see `src/jevlog.ts`). */
   readonly jevLog: JevLog;
+  /** Planner changes she offers or makes (see `src/planchanges.ts`). */
+  readonly planChanges: PlanChanges;
 
   /**
    * Open (or create) the database inside `dataDir`.
@@ -447,6 +450,7 @@ export class Store {
     this.proactiveLog = new ProactiveLog(this.db);
     this.intimacy = new IntimacyHold(this.db);
     this.jevLog = new JevLog(this.db);
+    this.planChanges = new PlanChanges(this.db);
 
     if (isNew) this.seed();
   }

@@ -76,6 +76,8 @@ Unlike the rest of her memory, these go **straight in**, the way yours do in the
 
 They also keep the pencil-first path from logging things twice: when she logs or removes a sticker, Jev's pencil notes about the same tracker and day are settled at the same time (done, or tossed), and processing never adds a sticker that's already there.
 
+Later still, she got tools to change your **planner**, with your yes (`add_plan`, `change_plan`, `remove_plan`), and her plan lookups give each plan's `plan_id`. See [planner-changes.md](planner-changes.md).
+
 She can't rename or delete trackers: deleting one deletes all its stickers, and that stays yours. Like every tool, these are only offered on profiles marked "Can use tools". Without tools, Jev still notices stickers for trackers you've made (stage 7).
 
 ## Seeing what she did

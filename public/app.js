@@ -45,6 +45,8 @@ const state = {
   messages: [],
   /** The open channel's tool calls (her lookups), oldest first (stage 6). */
   toolCalls: [],
+  /** Planner changes she offered or made in the open channel (src/planchanges.ts). */
+  planChanges: [],
   /** Turn ids whose action details are expanded under their messages. */
   openActivity: new Set(),
   /** The full tool log of the open channel, while the tool log is open. */
@@ -238,6 +240,7 @@ async function openChannel(channelId) {
   state.messages = [];
   state.changed.clear();
   state.toolCalls = [];
+  state.planChanges = [];
   state.unread.delete(channelId);
   resetReveal();
   hideError();
@@ -258,11 +261,12 @@ async function openChannel(channelId) {
 
   if (channelId) {
     try {
-      const { messages, toolCalls } = await api("GET", channelPath("messages", channelId));
+      const { messages, toolCalls, planChanges } = await api("GET", channelPath("messages", channelId));
       // Ignore the answer if you switched again while it was loading.
       if (state.channelId !== channelId) return;
       state.messages = messages;
       state.toolCalls = toolCalls;
+      state.planChanges = planChanges ?? [];
     } catch (error) {
       showError(`Couldn't load this channel: ${error.message}`, () => openChannel(channelId));
     }
@@ -511,13 +515,14 @@ async function refreshMessages() {
   const channelId = state.channelId;
   if (!channelId) return;
   try {
-    const { messages, toolCalls } = await api("GET", channelPath("messages", channelId));
+    const { messages, toolCalls, planChanges } = await api("GET", channelPath("messages", channelId));
     if (state.channelId !== channelId) return;
     // Keep bubbles that are still on their way to the server.
     const pending = state.messages.filter((m) => m.pending);
     resetReveal();
     state.messages = [...messages, ...pending];
     state.toolCalls = toolCalls;
+    state.planChanges = planChanges ?? [];
   } catch (error) {
     showError(`Couldn't reload this channel: ${error.message}`, () => refreshMessages());
   }
@@ -756,6 +761,14 @@ function handleEvent(event) {
       state.intimacyHold = event.hold;
       renderHold();
       break;
+    case "plan-change":
+      // A planner change she offered, made or dropped.
+      if (event.change.channelId === state.channelId) {
+        const known = state.planChanges.some((c) => c.id === event.change.id);
+        state.planChanges = known ? state.planChanges.map((c) => (c.id === event.change.id ? event.change : c)) : [...state.planChanges, event.change];
+        renderMessages();
+      }
+      break;
     case "message":
       // One message changed: edited, or an image was read.
       if (event.message.channelId === state.channelId) state.changed.set(event.message.id, event.message);
@@ -949,7 +962,7 @@ function renderMessages() {
   state.messages.forEach((message, index) => {
     while (loose.length && loose[0][1][0].createdAt <= message.createdAt) {
       const [turnId, calls] = loose.shift();
-      els.messages.append(renderActivity(turnId, calls));
+      els.messages.append(renderActivity(turnId, calls), ...renderPlanChanges(turnId));
       previous = null;
     }
     els.messages.append(
@@ -962,11 +975,11 @@ function renderMessages() {
     // After a turn's last bubble (once they've all appeared), what it looked up.
     const next = state.messages[index + 1];
     if (message.turnId && turns.has(message.turnId) && next?.turnId !== message.turnId && !waiting.has(message.turnId)) {
-      els.messages.append(renderActivity(message.turnId, turns.get(message.turnId)));
+      els.messages.append(renderActivity(message.turnId, turns.get(message.turnId)), ...renderPlanChanges(message.turnId));
       previous = null;
     }
   });
-  for (const [turnId, calls] of loose) els.messages.append(renderActivity(turnId, calls));
+  for (const [turnId, calls] of loose) els.messages.append(renderActivity(turnId, calls), ...renderPlanChanges(turnId));
 }
 
 /**
@@ -1388,6 +1401,68 @@ async function readImageAgain(id) {
   try {
     const { message } = await api("POST", `/api/messages/${encodeURIComponent(id)}/read-image`, {});
     state.messages = state.messages.map((m) => (m.id === id ? message : m));
+    renderMessages();
+  } catch (error) {
+    showError(error.message, null);
+  }
+}
+
+// --------------------------------------------------------- planner changes
+
+/** How each way a planner change can end is shown. */
+const PLAN_CHANGE_STATUS = {
+  pending: "Waiting for your yes",
+  applied: "✓ Done",
+  declined: "✕ Not done",
+  expired: "Dropped",
+  failed: "⚠️ Couldn't be done",
+};
+
+/** The planner changes one of her turns offered or made: cards, with Yes and No while they wait. */
+function renderPlanChanges(turnId) {
+  return state.planChanges.filter((c) => c.turnId === turnId).map(renderPlanChange);
+}
+
+function renderPlanChange(change) {
+  const card = document.createElement("div");
+  card.className = "plan-change";
+  card.dataset.status = change.status;
+  card.dataset.changeId = change.id;
+
+  const summary = document.createElement("p");
+  summary.className = "plan-change-summary";
+  summary.textContent = `📅 ${change.summary}`;
+  card.append(summary);
+  if (change.before) {
+    const before = document.createElement("p");
+    before.className = "plan-change-before";
+    before.textContent = `Now: ${change.before}`;
+    card.append(before);
+  }
+
+  const status = document.createElement("p");
+  status.className = "plan-change-status";
+  status.textContent = PLAN_CHANGE_STATUS[change.status] + (change.reason && change.status !== "pending" ? ` (${change.reason})` : "");
+  card.append(status);
+
+  if (change.status === "pending") {
+    const buttons = document.createElement("div");
+    buttons.className = "plan-change-buttons";
+    const yes = actionButton("Yes", () => answerPlanChange(change.id, "yes"));
+    yes.className = "button button-primary";
+    const no = actionButton("No", () => answerPlanChange(change.id, "no"));
+    no.className = "button";
+    buttons.append(yes, no);
+    card.append(buttons);
+  }
+  return card;
+}
+
+/** Yes or No, tapped. */
+async function answerPlanChange(id, answer) {
+  try {
+    const { change } = await api("POST", `/api/plan-changes/${encodeURIComponent(id)}`, { answer });
+    state.planChanges = state.planChanges.map((c) => (c.id === id ? change : c));
     renderMessages();
   } catch (error) {
     showError(error.message, null);

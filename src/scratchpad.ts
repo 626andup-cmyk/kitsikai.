@@ -43,6 +43,7 @@ import { formatClock, modelText } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import type { Message, MemoryLogEntry, Note, Tracker } from "./types.ts";
 import { describeDraft, writeNotes, type WriteRequest, type Written } from "./writer.ts";
+import { settleChange, type PlanChange } from "./planchanges.ts";
 
 /** What the scratchpad check and processing need to do their work. */
 export interface MemoryDeps {
@@ -182,6 +183,8 @@ export class Scratchpad {
     const trackers = store.trackers.list();
     const open = this.memory.notes(["open"]);
     const asking = this.memory.notes(["asking"]);
+    // Planner changes she offered here, waiting for your yes (src/planchanges.ts).
+    const offers = store.planChanges.pending(now, channelId);
 
     // --- the state: what Jev (and the writer) read
     const freshIds = new Set(fresh.map((m) => m.id));
@@ -192,6 +195,7 @@ export class Scratchpad {
     const chat = [...earlier.map((m) => chatLine(m, settings.name)), ...fresh.map((m) => chatLine(m, settings.name, true))];
     const noteIds = new Map(open.map((n, i) => [`n${i + 1}`, n]));
     const askIds = new Map(asking.map((n, i) => [`a${i + 1}`, n]));
+    const offerIds = new Map(offers.map((c, i) => [`p${i + 1}`, c]));
     const state = [
       `Today is ${longNow(now)}.`,
       `The chat in #${channelName} between them and ${settings.name}, oldest first. Their NEW messages, the ones the questions are about, are marked NEW:\n${chat.join("\n")}`,
@@ -202,6 +206,9 @@ export class Scratchpad {
         : "",
       open.length ? `${settings.name}'s notes, not processed yet:\n${[...noteIds].map(([id, n]) => `- ${id}: ${n.text}`).join("\n")}` : "",
       asking.length ? `What ${settings.name} asked them about:\n${[...askIds].map(([id, n]) => `- ${id}: ${n.ask ?? n.text}`).join("\n")}` : "",
+      offers.length
+        ? `Changes to their planner ${settings.name} offered, waiting for their yes:\n${[...offerIds].map(([id, c]) => `- ${id}: ${c.summary}`).join("\n")}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -251,6 +258,9 @@ export class Scratchpad {
     for (const id of askIds.keys()) {
       questions.push({ id, kind: "choice", question: `Do their NEW messages answer what ${settings.name} asked in ${id}?`, options: ["yes", "no", "not answered"] });
     }
+    for (const id of offerIds.keys()) {
+      questions.push({ id, kind: "choice", question: `Do their NEW messages say yes to planner change ${id}, no, or not answer it?`, options: ["yes", "no", "not answered"] });
+    }
 
     // Stage 8: on call right now? Then: called in, or done?
     const onCall = this.onCall(now);
@@ -268,6 +278,7 @@ export class Scratchpad {
     const answers = await decider.ask(state + onCallState, questions, { signal, purpose: "Scratchpad check" });
     if (signal.aborted) throw new CancelledError();
     const changes = await this.apply({ answers, threshold, state, trackers, noteIds, askIds, fresh, channelId, now, today, signal, api });
+    this.answerOffers(offerIds, answers, threshold, fresh.at(-1)!.id);
     if (onCall) changes.push(...this.applyOnCall(onCall, answers, threshold, fresh.at(-1)!.id));
     return changes;
   }
@@ -304,6 +315,17 @@ export class Scratchpad {
     }
     events?.publish({ type: "plans" });
     return [entry];
+  }
+
+  /** Your yes or no to planner changes she offered (src/planchanges.ts). Unsure, or not answered: they keep waiting. */
+  private answerOffers(offerIds: Map<string, PlanChange>, answers: Answers, threshold: number, messageId: string): void {
+    const { store, events, clock } = this.deps;
+    for (const [id, change] of offerIds) {
+      const answer = confidentChoice(answers.get(id), threshold);
+      if (answer !== "yes" && answer !== "no") continue;
+      const sure = percent(probabilityOf(answers.get(id), answer));
+      settleChange({ store, events }, change, answer, `they said ${answer} (${sure} sure)`, messageId, clock());
+    }
   }
 
   /** Turn Jev's answers into notes (and commits, and tossed notes). */
@@ -483,7 +505,10 @@ export class Scratchpad {
     const now = clock();
     try {
       if (note.kind === "plan" && note.planDraft) {
-        store.plans.create({ ...note.planDraft, repeats: "never", checked: true, source: "chat" });
+        // She may have put it in already, with add_plan.
+        const draft = note.planDraft;
+        const already = store.plans.occurrences(draft.startDate, draft.startDate).some((o) => o.plan.title.trim().toLowerCase() === draft.title.trim().toLowerCase());
+        if (!already) store.plans.create({ ...draft, repeats: "never", checked: true, source: "chat" });
         this.memory.updateNote(note.id, { status: "done", confirmed: true }, now);
         log({ runId: null, action: "confirmed", text: describeDraft(note.planDraft), reason: `they said yes (${sure}), so it's in the planner`, noteId: note.id });
         events?.publish({ type: "plans" });

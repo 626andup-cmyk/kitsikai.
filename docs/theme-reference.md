@@ -135,6 +135,7 @@ Every `*-bg` can be a colour, gradient or image. Every `*-backdrop` is a [`backd
 | `.message-image`, `.image-seen`, `.image-seen-label` | An image you sent, and "What she sees" under it. `.image-seen` has `data-status` (`reading`, `read`, `failed`) and gets `.expanded` when tapped. |
 | `.composer-attachments`, `.composer-attachment`, `.composer-attachment-remove`, `.attach-button` | Images waiting to be sent, above the text box, and the button that picks them |
 | `.image-viewer` | The big view of an image (a `<dialog>`) |
+| `.plan-change`, `.plan-change-summary`, `.plan-change-before`, `.plan-change-status`, `.plan-change-buttons` | A planner change she offered or made, under her reply. Has `data-status` (`pending`, `applied`, `declined`, `expired`, `failed`); while pending, it has Yes and No buttons. |
 | `.hold-banner` | "Safeword heard", above the composer while the safeword hold is on |
 | `.hold-status` | The safeword hold's status in Settings → Intimacy |
 | `.notice-banner` | Short notices at the top of the channel, e.g. about glass effects |

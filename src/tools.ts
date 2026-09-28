@@ -14,6 +14,10 @@
  * matters most for a chat imported from elsewhere (src/importer.ts): only
  * a channel's newest messages are in view.
  *
+ * Planner changes: `add_plan`, `change_plan` and `remove_plan` offer a
+ * change, and Jev is asked whether you asked for it. If you did, it's done;
+ * if not, it waits for your yes (src/planchanges.ts).
+ *
  * Trackers, like you can: `make_tracker` makes one, and `log_sticker` and
  * `remove_sticker` put stickers on days and take them off. Unlike her
  * notes, these go straight in, the way yours do from the trackers channel,
@@ -39,11 +43,14 @@ import { addDays, dateOf, daysBetween, isDate, type LocalDate } from "./dates.ts
 import { NotFoundError, ValidationError } from "./errors.ts";
 import { checkValue } from "./trackers.ts";
 import type { ToolSpec } from "./nanogpt.ts";
-import { PLAN_KINDS } from "./planner.ts";
+import { PLAN_KINDS, REPEATS, SHIFT_TYPES, validatePlan, type PlanInput } from "./planner.ts";
 import { formatClock, modelText } from "./prompt.ts";
 import type { Events } from "./events.ts";
+import type { Decider } from "./jev.ts";
+import { askedFor, describePlan, settleChange } from "./planchanges.ts";
+import { normalizeDate, normalizeTime } from "./screenshot.ts";
 import type { Store } from "./store.ts";
-import type { Channel, LogEntry, PlanKind, Tracker, TrackerKind } from "./types.ts";
+import type { Channel, LogEntry, Plan, PlanKind, Tracker, TrackerKind } from "./types.ts";
 
 /** Where a tool runs: the channel of the turn, and the time. */
 export interface ToolContext {
@@ -52,6 +59,10 @@ export interface ToolContext {
   now: Date;
   /** To tell the app her notes changed (stage 7). */
   events?: Events;
+  /** Jev, for asking whether she should change the planner (src/planchanges.ts). */
+  decider?: Decider;
+  /** Her turn, so a planner change she offers shows under that reply. */
+  turnId?: string;
 }
 
 /** What running a tool produced. */
@@ -68,12 +79,15 @@ export interface ToolOutcome {
 /** A mistake in how the model used a tool, explained to it. */
 class ToolError extends Error {}
 
+type ToolRun = Omit<ToolOutcome, "ok"> & { ok?: boolean };
+
 interface ToolDefinition {
   name: string;
   description: string;
   /** JSON schema for the arguments object. */
   parameters: Record<string, unknown>;
-  run: (ctx: ToolContext, args: Record<string, unknown>) => Omit<ToolOutcome, "ok"> & { ok?: boolean };
+  /** Most tools answer at once; the planner tools ask Jev first, so they return a promise. */
+  run: (ctx: ToolContext, args: Record<string, unknown>) => ToolRun | Promise<ToolRun>;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -160,6 +174,108 @@ function stickerOn(ctx: ToolContext, tracker: Tracker, date: LocalDate): LogEntr
   return ctx.store.trackers.entries({ trackerId: tracker.id, from: date, to: date })[0];
 }
 
+// ------------------------------------------------------- planner changes
+
+/** The fields a plan tool can set, as the model writes them. */
+const PLAN_FIELDS = {
+  kind: { type: "string", enum: PLAN_KINDS, description: "What it is: a shift, or an appointment, birthday, hangout or other plan." },
+  title: str('What it\'s called: "Dentist", "Mia\'s birthday", "Work".'),
+  date: str('The day it starts, as YYYY-MM-DD, or "today" or "tomorrow".'),
+  start_time: str('Optional: when it starts, like "15:00" or "3pm". Leave it out for all day. Shifts need one.'),
+  end_time: str('Optional: when it ends, like "17:30". Shifts need one; one earlier than the start ends the next day.'),
+  end_date: str("Optional: the last day of an all-day plan that lasts several days, as YYYY-MM-DD."),
+  shift_type: { type: "string", enum: SHIFT_TYPES, description: 'Shifts only: "regular" (the default), "meeting", or "oncall".' },
+  draw_start: str("Regular shifts only, optional: when the draw hours start."),
+  draw_end: str("Regular shifts only, optional: when the draw hours end."),
+  repeats: { type: "string", enum: REPEATS, description: 'Optional: "never" (the default), "weekly" or "yearly".' },
+  notes: str("Optional: notes."),
+  overnight: { type: "boolean", description: "Shifts only, optional: true if they stay away overnight after it (a hotel night before the next shift)." },
+};
+
+/** A time argument: "15:00", "3pm", "9:30a". */
+function timeArg(args: Record<string, unknown>, key: string): string | null | undefined {
+  if (!(key in args)) return undefined;
+  const value = maybe(args, key);
+  if (value === undefined) return null;
+  const time = normalizeTime(value);
+  if (!time) throw new ToolError(`"${key}" must be a time like 15:00 or 3pm.`);
+  return time;
+}
+
+/** A plan's fields from the model's arguments: only the ones it gave. */
+function planFields(args: Record<string, unknown>, now: Date): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  const text = (key: string, field: string) => {
+    if (key in args) fields[field] = maybe(args, key) ?? (field === "notes" ? "" : null);
+  };
+  const date = (key: string, field: string) => {
+    if (!(key in args)) return;
+    const value = maybe(args, key);
+    if (value === undefined) return void (fields[field] = null);
+    fields[field] = normalizeDate(value, dateOf(now)) ?? dateArg(value, now, key);
+  };
+  text("kind", "kind");
+  text("title", "title");
+  date("date", "startDate");
+  date("end_date", "endDate");
+  for (const [key, field] of [["start_time", "startTime"], ["end_time", "endTime"], ["draw_start", "drawStart"], ["draw_end", "drawEnd"]] as const) {
+    const time = timeArg(args, key);
+    if (time !== undefined) fields[field] = time;
+  }
+  text("shift_type", "shiftType");
+  text("repeats", "repeats");
+  text("notes", "notes");
+  if ("overnight" in args) {
+    if (typeof args.overnight !== "boolean") throw new ToolError('"overnight" must be true or false.');
+    fields.overnight = args.overnight;
+  }
+  return fields;
+}
+
+/** A plan by its id (from look_up_plans or find_plans). */
+function findPlan(store: Store, args: Record<string, unknown>): Plan {
+  const id = maybe(args, "plan_id");
+  if (!id) throw new ToolError('"plan_id" is required: get it from look_up_plans or find_plans.');
+  try {
+    return store.plans.get(id);
+  } catch {
+    throw new ToolError(`There's no plan with id "${id}". Get its plan_id from look_up_plans or find_plans.`);
+  }
+}
+
+/** The editable fields of a plan, to merge changes into. */
+function inputOf(plan: Plan): PlanInput {
+  const { id: _id, createdAt: _created, updatedAt: _updated, ...input } = plan;
+  return input;
+}
+
+/**
+ * Offer a planner change, or make it: Jev is asked whether they asked for
+ * it (src/planchanges.ts). If so, it's done; if not, it waits for their yes.
+ */
+async function offerChange(ctx: ToolContext, action: "add" | "change" | "remove", current: Plan | null, plan: PlanInput | null) {
+  const { store, events, now } = ctx;
+  const described = describePlan(plan ?? current!);
+  const verbs = { add: ["Add", "added", "add"], change: ["Change", "changed", "change"], remove: ["Remove", "removed", "remove"] }[action];
+  const summary = `${verbs[0]}: ${described}`;
+  const before = action === "change" ? describePlan(current!) : null;
+  const change = store.planChanges.add({ action, planId: current?.id ?? null, plan, summary, before, channelId: ctx.channel.id, turnId: ctx.turnId ?? null }, now);
+  const should = await askedFor({ store, decider: ctx.decider }, ctx.channel.id, summary, before);
+  if (should.yes) {
+    const settled = settleChange({ store, events }, change, "yes", should.reason, null, now);
+    if (settled.status !== "applied") throw new ToolError(settled.reason ?? "It couldn't be done.");
+    return { result: { done: summary, note: "Done: the planner has it now." }, summary: `${verbs[1]} ${described}` };
+  }
+  events?.publish({ type: "plan-change", change });
+  return {
+    result: {
+      waiting: summary,
+      note: "Not done yet: ask them in your reply whether you should. It happens when they say yes (or tap Yes under your message).",
+    },
+    summary: `offered to ${verbs[2]} ${described}`,
+  };
+}
+
 /** Find a channel by name (`#gaming` or `gaming`). */
 function findChannel(ctx: ToolContext, name: string): Channel {
   const wanted = norm(name.replace(/^#/, ""));
@@ -208,7 +324,7 @@ const TOOLS: ToolDefinition[] = [
       const found = store.plans.occurrences(from, to).filter((o) => !kind || o.plan.kind === kind);
       return {
         result: found.length
-          ? found.map((o) => ({ day: dayName(o.date), date: o.date, plan: describeOccurrence(o) }))
+          ? found.map((o) => ({ day: dayName(o.date), date: o.date, plan: describeOccurrence(o), plan_id: o.plan.id }))
           : { note: `Nothing planned between ${dayName(from)} and ${dayName(to)}.` },
         summary: `looked up ${kind ? `${kind}s` : "plans"} for ${range(from, to)}`,
       };
@@ -231,7 +347,7 @@ const TOOLS: ToolDefinition[] = [
           const coming = store.plans.occurrences(today, addDays(today, 366)).find((o) => o.plan.id === plan.id);
           const last = coming ? undefined : store.plans.occurrences(addDays(today, -366), today).filter((o) => o.plan.id === plan.id).at(-1);
           const o = coming ?? last;
-          return o ? { when: coming ? "next" : "last", day: dayName(o.date), date: o.date, plan: describeOccurrence(o) } : null;
+          return o ? { when: coming ? "next" : "last", day: dayName(o.date), date: o.date, plan: describeOccurrence(o), plan_id: plan.id } : null;
         })
         .filter(Boolean);
       return {
@@ -388,6 +504,43 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "add_plan",
+    description:
+      "Add a plan or shift to their planner. If they asked you to, it's done; if it's your idea, it waits for their yes, so ask them in your reply.",
+    parameters: object(PLAN_FIELDS, ["kind", "title", "date"]),
+    run: async (ctx, args) => {
+      const fields = planFields(args, ctx.now);
+      const plan = validatePlan({ ...fields, checked: true, source: "chat" });
+      const same = ctx.store.plans
+        .occurrences(plan.startDate, plan.startDate)
+        .find((o) => o.plan.title.trim().toLowerCase() === plan.title.toLowerCase());
+      if (same) throw new ToolError(`That's in the planner already: ${describeOccurrence(same)} (plan_id ${same.plan.id}).`);
+      return offerChange(ctx, "add", null, plan);
+    },
+  },
+  {
+    name: "change_plan",
+    description:
+      "Change one of their plans or shifts: give its plan_id (from look_up_plans or find_plans) and only what changes. A repeating plan changes every time it happens. If they asked you to, it's done; if not, it waits for their yes.",
+    parameters: object({ plan_id: str("The plan's id, from look_up_plans or find_plans."), ...PLAN_FIELDS }, ["plan_id"]),
+    run: async (ctx, args) => {
+      const current = findPlan(ctx.store, args);
+      const { plan_id: _id, ...rest } = args;
+      const fields = planFields(rest, ctx.now);
+      if (Object.keys(fields).length === 0) throw new ToolError("Say what changes: a new date, time, title...");
+      const plan = validatePlan({ ...inputOf(current), ...fields });
+      if (JSON.stringify(plan) === JSON.stringify(validatePlan({ ...inputOf(current) }))) throw new ToolError("That's how it is already.");
+      return offerChange(ctx, "change", current, plan);
+    },
+  },
+  {
+    name: "remove_plan",
+    description:
+      "Remove one of their plans or shifts (every time it happens, if it repeats), by its plan_id from look_up_plans or find_plans. If they asked you to, it's done; if not, it waits for their yes.",
+    parameters: object({ plan_id: str("The plan's id, from look_up_plans or find_plans.") }, ["plan_id"]),
+    run: async (ctx, args) => offerChange(ctx, "remove", findPlan(ctx.store, args), null),
+  },
+  {
     name: "read_channel",
     description: "Read the latest messages in another channel, to catch up on what you two said there.",
     parameters: object(
@@ -541,11 +694,11 @@ export const TOOL_NAMES = TOOLS.map((t) => t.name);
  * back as a failed outcome whose result explains the problem, so the model
  * can try again.
  */
-export function runTool(ctx: ToolContext, name: string, args: Record<string, unknown>): ToolOutcome {
+export async function runTool(ctx: ToolContext, name: string, args: Record<string, unknown>): Promise<ToolOutcome> {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) return failure(`There's no tool called "${name}". Tools: ${TOOL_NAMES.join(", ")}.`);
   try {
-    return { ok: true, ...tool.run(ctx, args) };
+    return { ok: true, ...(await tool.run(ctx, args)) };
   } catch (error) {
     if (error instanceof ToolError || error instanceof ValidationError || error instanceof NotFoundError) {
       return failure(error.message);

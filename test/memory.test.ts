@@ -586,7 +586,7 @@ describe("the scheduler", () => {
 describe("in her prompt", () => {
   const prompt = () => promptForChannel(app.store, general.id, { now: time })[0]!.content;
 
-  test("her pins, notes, questions and things to bring up are always in view", () => {
+  test("her pins, notes, questions and things to bring up are always in view", async () => {
     addPin("exam on friday", { reason: "they're nervous", unpinWhen: "after the exam", unpinDate: "2026-10-02" });
     addNote({ kind: "tracker", text: "headache 7/10 on Sat, Sep 26" });
     const asking = addNote({ kind: "plan", text: "dentist" });
@@ -605,7 +605,7 @@ describe("in her prompt", () => {
     expect(content.indexOf("## Today and tomorrow")).toBeLessThan(content.indexOf("## Your notes and pins"));
   });
 
-  test("with nothing pinned, she knows that too", () => {
+  test("with nothing pinned, she knows that too", async () => {
     expect(prompt()).toContain("Pinned: nothing right now.");
     expect(prompt()).not.toContain("On your scratchpad");
   });
@@ -638,37 +638,37 @@ describe("in her prompt", () => {
 describe("her note tools", () => {
   const ctx = () => ({ store: app.store, channel: general, now: time, events: app.events });
 
-  test("jot_note puts a note on her scratchpad, in pencil", () => {
+  test("jot_note puts a note on her scratchpad, in pencil", async () => {
     const message = app.store.addMessage({ channelId: general.id, author: "user", content: "ugh new manager again" });
     const events = listen();
-    const outcome = runTool(ctx(), "jot_note", { text: "they're stressed about the new manager", soon: false });
+    const outcome = await runTool(ctx(), "jot_note", { text: "they're stressed about the new manager", soon: false });
     expect(outcome).toMatchObject({ ok: true, summary: 'jotted down "they\'re stressed about the new manager"' });
     expect(memory().notes()).toEqual([expect.objectContaining({ kind: "remember", origin: "jotted", yours: false, status: "open", messageId: message.id })]);
     expect(memory().recentLog()[0]).toMatchObject({ action: "noted", reason: "you jotted it down" });
     expect(events).toEqual([{ type: "memory" }]);
   });
 
-  test("jot_note for their requests to pin or let go", () => {
-    runTool(ctx(), "jot_note", { text: "pin: mom's surgery", kind: "pin", soon: true });
-    runTool(ctx(), "jot_note", { text: "let go of the exam pin", kind: "let go" });
+  test("jot_note for their requests to pin or let go", async () => {
+    await runTool(ctx(), "jot_note", { text: "pin: mom's surgery", kind: "pin", soon: true });
+    await runTool(ctx(), "jot_note", { text: "let go of the exam pin", kind: "let go" });
     expect(memory().notes().map((n) => [n.kind, n.request, n.yours, n.timeSensitive])).toEqual([
       ["request", "pin", true, true],
       ["request", "unpin", true, false],
     ]);
-    expect(runTool(ctx(), "jot_note", { text: "x", kind: "forget" }).ok).toBe(false);
-    expect(runTool(ctx(), "jot_note", {}).summary).toBe('"text" is required.');
+    expect((await runTool(ctx(), "jot_note", { text: "x", kind: "forget" })).ok).toBe(false);
+    expect((await runTool(ctx(), "jot_note", {})).summary).toBe('"text" is required.');
   });
 
-  test("look_in_drawer finds pins she took down", () => {
+  test("look_in_drawer finds pins she took down", async () => {
     const pin = addPin("exam on friday", { reason: "they were nervous" });
     memory().unpin(pin.id, "it's over", time);
     addPin("still up");
-    expect(runTool(ctx(), "look_in_drawer", { query: "exam" })).toMatchObject({
+    expect(await runTool(ctx(), "look_in_drawer", { query: "exam" })).toMatchObject({
       ok: true,
       result: [{ pin: "exam on friday", why: "they were nervous", pinned: "Sat, Sep 26", taken_down: "Sat, Sep 26", because: "it's over" }],
       summary: 'looked in the drawer for "exam"',
     });
-    expect(runTool(ctx(), "look_in_drawer", { query: "manager" }).result).toEqual({ note: 'Nothing in the drawer about "manager".' });
+    expect((await runTool(ctx(), "look_in_drawer", { query: "manager" })).result).toEqual({ note: 'Nothing in the drawer about "manager".' });
   });
 
   test("she can jot a note during a turn, and the app hears about it", async () => {
@@ -706,7 +706,7 @@ describe("the API", () => {
   });
 
   test("GET /api/memory lists what happened during chat separately", async () => {
-    runTool({ store: app.store, channel: general, now: time }, "jot_note", { text: "likes pho" });
+    await runTool({ store: app.store, channel: general, now: time }, "jot_note", { text: "likes pho" });
     const { data } = await call("GET", "/api/memory");
     expect(data.duringChat).toEqual([expect.objectContaining({ action: "noted", text: "likes pho", runId: null })]);
     expect(data.notes).toEqual([expect.objectContaining({ text: "likes pho" })]);

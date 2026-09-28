@@ -36,6 +36,7 @@ import { splitBubbles } from "./bubbles.ts";
 import { registerPrompt, routeTurn } from "./intimacy.ts";
 import type { Decider } from "./jev.ts";
 import { memoryForPrompt } from "./memory.ts";
+import { planChangesForPrompt } from "./planchanges.ts";
 import { dueReminders, remindersForPrompt } from "./reminders.ts";
 import type { Events } from "./events.ts";
 import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
@@ -147,6 +148,7 @@ export function promptForChannel(store: Store, channelId: string, options: Promp
     todayAndTomorrow: todayAndTomorrow(store, now, calledIn),
     reminders: remindersForPrompt(dueReminders(store, now), channelId),
     memory: memoryForPrompt(store.memory, settings, now),
+    planChanges: planChangesForPrompt(store, channelId, now),
     note: options.note,
     tools: options.profile?.supportsTools ?? false,
     registerPrompt: options.registerPrompt ?? "",
@@ -261,19 +263,26 @@ export class Kitsikai {
         note: options.note,
         registerPrompt: regPrompt,
       });
-      const context: ToolContext = { store: this.store, channel, now, events: this.events };
-      const tools = profile.supportsTools ? toolSpecs() : [];
       const turnId = crypto.randomUUID();
+      const context: ToolContext = { store: this.store, channel, now, events: this.events, decider: this.decider, turnId };
+      const tools = profile.supportsTools ? toolSpecs() : [];
 
       const started = Date.now();
       console.log(
         `[kitsikai] turn started in #${channel.name} (${trigger}) using "${profile.name}" (${profile.model})` +
           (tools.length ? `, ${tools.length} tools` : ""),
       );
-      const loop = await this.toolLoop({ conversation, tools, context, profile, turnId, signal: controller.signal });
-      // Belt and braces: if the turn was stopped just as the reply arrived,
-      // don't save it.
-      if (controller.signal.aborted) throw new CancelledError();
+      let loop;
+      try {
+        loop = await this.toolLoop({ conversation, tools, context, profile, turnId, signal: controller.signal });
+        // Belt and braces: if the turn was stopped just as the reply arrived,
+        // don't save it.
+        if (controller.signal.aborted) throw new CancelledError();
+      } catch (error) {
+        // A planner change she offered in a reply you'll never see can't be answered.
+        this.dropOffers(turnId);
+        throw error;
+      }
       console.log(
         `[kitsikai] turn finished in ${((Date.now() - started) / 1000).toFixed(1)}s after ${loop.rounds} round(s), ` +
           `${loop.toolCalls.length} tool call(s)`,
@@ -281,9 +290,13 @@ export class Kitsikai {
 
       // One message per bubble (see src/bubbles.ts).
       const bubbles = loop.stopped ? [] : splitBubbles(stripTimeMarkers(loop.content));
+      if (bubbles.length === 0) this.dropOffers(turnId);
       const result: TurnResult = { messages: [], replaced: [], toolCalls: loop.toolCalls, skipped: bubbles.length === 0 };
       if (bubbles.length > 0) {
         // Swap old for new in one transaction: never both, never neither.
+        // The reply being replaced takes the planner changes it offered with it.
+        const oldTurns = new Set((options.replacing ?? []).map((id) => this.store.getMessage(id).turnId).filter((t) => t !== null));
+        for (const oldTurn of oldTurns) this.dropOffers(oldTurn);
         result.messages = this.store.db.transaction(() => {
           for (const id of options.replacing ?? []) this.store.deleteMessage(id);
           return this.store.addTurn(
@@ -376,7 +389,7 @@ export class Kitsikai {
         const outcome =
           offered.length === 0
             ? failed("You're out of tool rounds for this turn, so this wasn't run. Write your reply now.")
-            : this.runCall(context, call);
+            : await this.runCall(context, call);
         toolCalls.push(
           this.store.toolLog.add({
             channelId: context.channel.id,
@@ -408,8 +421,15 @@ export class Kitsikai {
     return { content, toolCalls, stopped: false, rounds: MAX_ROUNDS, model };
   }
 
+  /** Planner changes a turn offered that are still waiting go, and the app hears. */
+  private dropOffers(turnId: string): void {
+    for (const change of this.store.planChanges.dropPending(turnId)) {
+      this.events?.publish({ type: "plan-change", change: { ...change, status: "expired", reason: "her reply was stopped or replaced" } });
+    }
+  }
+
   /** Parse one call's arguments and run it. */
-  private runCall(context: ToolContext, call: ParsedCall): ToolOutcome {
+  private async runCall(context: ToolContext, call: ParsedCall): Promise<ToolOutcome> {
     const args = parseArguments(call.arguments);
     if (!args.ok) return failed(`${args.error} Call ${call.name} again with valid JSON arguments.`);
     return runTool(context, call.name, args.value);

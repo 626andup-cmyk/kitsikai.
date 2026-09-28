@@ -332,6 +332,48 @@ describe("the tool loop", () => {
     expect((await call("GET", `/api/channels/${general.id}/messages`)).data.toolCalls).toHaveLength(1);
   });
 
+  test("tools, then nothing: she's asked once more to write, never left silent", async () => {
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true });
+    fake.replies.push(
+      { toolCalls: [{ name: "look_up_plans", arguments: { from: "today", to: "today" } }] },
+      { content: "" },
+      { content: "ok it's updated" },
+    );
+    const { data } = await call("POST", `/api/channels/${general.id}/turn`, {});
+    expect(data.kitsikaiMessages.map((m: { content: string }) => m.content)).toEqual(["ok it's updated"]);
+    const last = fake.requests.at(-1)!;
+    expect(last.messages.at(-1)).toEqual({ role: "user", content: "(App note, not from them: you've got what you needed from your tools. Now write your reply to them.)" });
+    expect(last.tools).toBeUndefined();
+  });
+
+  test("tools, then nothing twice: an error you can see, with Try again", async () => {
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true });
+    fake.replies.push({ toolCalls: [{ name: "look_up_plans", arguments: { from: "today", to: "today" } }] }, { content: "" }, { content: "" });
+    const { status, data } = await call("POST", `/api/channels/${general.id}/turn`, {});
+    expect(status).toBe(502);
+    expect(data.error).toBe("The model returned an empty reply.");
+  });
+
+  test("tools, then out of tokens: says so, and what to change", async () => {
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true, maxTokens: 500 });
+    fake.replies.push({ toolCalls: [{ name: "look_up_plans", arguments: { from: "today", to: "today" } }] }, { content: "", finishReason: "length" });
+    const { status, data } = await call("POST", `/api/channels/${general.id}/turn`, {});
+    expect(status).toBe(502);
+    expect(data.error).toBe(
+      "DeepSeek-V3.1-Terminus ran out of tokens before writing its reply (Max tokens is 500, and a thinking model spends some of them thinking). Raise Max tokens in its profile, or lower its reasoning effort.",
+    );
+    expect(fake.requests).toHaveLength(2); // asking again wouldn't help
+  });
+
+  test("a tool call goes back with what the provider put on it (Gemini's thought signature)", async () => {
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true });
+    const extra = { extra_content: { google: { thought_signature: "sig-123" } } };
+    fake.replies.push({ toolCalls: [{ name: "look_up_plans", arguments: { from: "today", to: "today" }, extra }] }, { content: "nothing today!" });
+    await call("POST", `/api/channels/${general.id}/turn`, {});
+    const sent = fake.requests[1]!.messages.at(-2) as any;
+    expect(sent.tool_calls[0]).toEqual({ id: "call_1_0", type: "function", function: { name: "look_up_plans", arguments: '{"from":"today","to":"today"}' }, ...extra });
+  });
+
   test("finds tool calls written as text, and keeps them out of her reply", async () => {
     fake.replies.push(
       { content: 'let me think <tool_call>{"name": "list_trackers", "arguments": {}}</tool_call>' },

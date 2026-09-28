@@ -227,6 +227,8 @@ export interface ApiToolCall {
   id: string;
   type: "function";
   function: { name: string; arguments: string };
+  /** Whatever else the provider put on the call (Gemini's thought signature), sent back as it came. */
+  [extra: string]: unknown;
 }
 
 // ------------------------------------------------ profiles and roulettes

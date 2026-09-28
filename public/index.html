@@ -645,7 +645,10 @@
           <option value="medium">Medium effort</option>
           <option value="high">High effort</option>
         </select>
-        <p class="hint">Only for reasoning models. Their thinking is never shown or saved.</p>
+        <p class="hint">
+          Only for reasoning models. Their thinking is never shown or saved, but it counts toward Max tokens: give a
+          thinking model (Gemini, DeepSeek R1...) 4000 or more, or it can run out before it writes anything.
+        </p>
 
         <label class="check-option">
           <input type="checkbox" name="supportsTools" />

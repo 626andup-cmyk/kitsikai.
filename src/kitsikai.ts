@@ -39,9 +39,9 @@ import { memoryForPrompt } from "./memory.ts";
 import { planChangesForPrompt } from "./planchanges.ts";
 import { dueReminders, remindersForPrompt } from "./reminders.ts";
 import type { Events } from "./events.ts";
-import { CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
+import { ApiError, CancelledError, createChatCompletion, type ApiOptions, type ToolSpec } from "./nanogpt.ts";
 import { parseExtraParams } from "./profiles.ts";
-import { buildPromptStack, stripTimeMarkers } from "./prompt.ts";
+import { buildPromptStack, NUDGES, stripTimeMarkers } from "./prompt.ts";
 import type { Store } from "./store.ts";
 import { extractTextToolCalls, parseArguments, type ParsedCall } from "./toolcalls.ts";
 import { runTool, toolSpecs, type ToolContext, type ToolOutcome } from "./tools.ts";
@@ -372,12 +372,23 @@ export class Kitsikai {
         text = found.content;
       }
       if (text.trim() !== "") content = text.trim();
-      if (calls.length === 0) return { content, toolCalls, stopped: false, rounds: round + 1, model };
+      if (calls.length === 0) {
+        // Her tools ran, and then she wrote nothing. Only do_nothing ends a
+        // turn in silence, so she's asked once more to write her reply
+        // (or, if she ran out of tokens, you're told why).
+        if (content === "" && round > 0) {
+          const final = await this.replyAfterTools(conversation, profile, response.finishReason, tools.length > 0, signal);
+          return { content: final.content, toolCalls, stopped: false, rounds: round + 2, model: final.model };
+        }
+        return { content, toolCalls, stopped: false, rounds: round + 1, model };
+      }
 
       // Record the model's request in the conversation, then each result.
+      // Each call goes back with whatever else the provider put on it
+      // (Gemini's thought signature), as it came.
       const native = calls.every((c) => c.source === "native");
       if (native) {
-        const apiCalls: ApiToolCall[] = calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } }));
+        const apiCalls: ApiToolCall[] = response.toolCalls.map((c) => ({ ...c.extra, id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } }));
         conversation.push({ role: "assistant", content: response.content || null, tool_calls: apiCalls });
       } else {
         conversation.push({ role: "assistant", content: response.content });
@@ -419,6 +430,38 @@ export class Kitsikai {
       if (offered.length === 0) return { content, toolCalls, stopped: false, rounds: round + 1, model };
     }
     return { content, toolCalls, stopped: false, rounds: MAX_ROUNDS, model };
+  }
+
+  /**
+   * She used her tools and then wrote nothing: ask once more, without tools,
+   * for her reply. If she ran out of tokens (thinking models spend some of
+   * Max tokens thinking), say so plainly instead: asking again wouldn't help.
+   *
+   * @throws ApiError if there's still no reply.
+   */
+  private async replyAfterTools(
+    conversation: ApiMessage[],
+    profile: Profile,
+    finishReason: string | null,
+    toolsOffered: boolean,
+    signal: AbortSignal,
+  ): Promise<{ content: string; model: string }> {
+    if (finishReason === "length") {
+      throw new ApiError(
+        `${profile.name} ran out of tokens before writing its reply (Max tokens is ${profile.maxTokens}, and a thinking model spends some of them thinking). ` +
+          "Raise Max tokens in its profile, or lower its reasoning effort.",
+      );
+    }
+    console.warn(`[kitsikai] ${profile.name} wrote nothing after using its tools; asking once more`);
+    conversation.push({ role: "user", content: NUDGES.afterTools });
+    const response = await createChatCompletion(this.api, { ...profileRequest(profile), messages: conversation, tools: [], signal });
+    if (response.finishReason === "length" && response.content.trim() === "") {
+      throw new ApiError(`${profile.name} ran out of tokens before writing its reply. Raise Max tokens in its profile.`);
+    }
+    // No tools this time: a call written out as text isn't run, and isn't part of her reply.
+    const content = toolsOffered ? extractTextToolCalls(response.content).content.trim() : response.content.trim();
+    if (content === "") throw new ApiError(`${profile.name} didn't write a reply after using its tools. Try again, or regenerate with another profile.`);
+    return { content, model: response.model };
   }
 
   /** Planner changes a turn offered that are still waiting go, and the app hears. */

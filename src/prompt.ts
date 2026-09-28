@@ -68,6 +68,8 @@ Use tools only when they help: most texts need none. If a plan or something logg
 export const NUDGES = {
   continue: "(App note, not from them: they haven't written anything new. Text them only if you have something to add.)",
   opening: "(App note, not from them: this channel is empty. Say hi, however feels natural.)",
+  /** She used her tools, then wrote nothing (src/kitsikai.ts): asked once more. */
+  afterTools: "(App note, not from them: you've got what you needed from your tools. Now write your reply to them.)",
 };
 
 /**

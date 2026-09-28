@@ -25,6 +25,7 @@
  */
 
 import type { Hold } from "./hold.ts";
+import type { PlanChange } from "./planchanges.ts";
 import type { Channel, Message, ToolCallRecord } from "./types.ts";
 
 /** Everything the server announces. */
@@ -51,7 +52,9 @@ export type ServerEvent =
   /** The safeword hold started (`hold`) or ended (`null`); see src/intimacy.ts. */
   | { type: "hold"; hold: Hold | null }
   /** One message changed in place: edited, or an image read (src/images.ts). */
-  | { type: "message"; message: Message };
+  | { type: "message"; message: Message }
+  /** A planner change she offered, made or dropped (src/planchanges.ts). */
+  | { type: "plan-change"; change: PlanChange };
 
 /** How often to send a comment line, so nothing in between closes a quiet connection. */
 const KEEPALIVE_MS = 25_000;

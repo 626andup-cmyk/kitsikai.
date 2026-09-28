@@ -408,8 +408,8 @@ describeUi("the app in a browser", () => {
     await page.click('.channel-link:has-text("planner")');
     await page.waitForSelector(".calendar-day.today");
     const ctx = { store: app.store, channel: general, now: new Date(), events: app.events };
-    expect(runTool(ctx, "make_tracker", { name: "headache", records: "1 to 10" }).ok).toBe(true);
-    expect(runTool(ctx, "log_sticker", { tracker: "headache", value: "6" }).ok).toBe(true);
+    expect((await runTool(ctx, "make_tracker", { name: "headache", records: "1 to 10" })).ok).toBe(true);
+    expect((await runTool(ctx, "log_sticker", { tracker: "headache", value: "6" })).ok).toBe(true);
     await page.waitForSelector('.day-stickers .log-sticker:has-text("headache")');
     await page.click('.day-stickers .log-sticker:has-text("headache")');
     expect(await page.textContent("#log-entry-source")).toBe("She logged this herself, from chat.");
@@ -457,6 +457,36 @@ describeUi("the app in a browser", () => {
     await page.click("#settings-button");
     expect(await page.$eval("#setting-image-assignment", (s: any) => s.options[s.selectedIndex].text)).toBe("Same as screenshots");
     await page.click("#settings-dialog [data-close]");
+    expect(t.errors).toEqual([]);
+  });
+
+  test("planner changes she offers: a card under her reply, Yes adds it, No doesn't", async () => {
+    const { page, app, fake } = t;
+    app.store.profiles.update(app.store.profiles.list()[0]!.id, { supportsTools: true });
+    await page.reload();
+    await page.waitForFunction("eventSource && eventSource.readyState === 1");
+    fake.replies.push(
+      { toolCalls: [{ name: "add_plan", arguments: { kind: "hangout", title: "Movie night", date: "tomorrow", start_time: "8pm" } }] },
+      { toolCalls: [{ name: "add_plan", arguments: { kind: "hangout", title: "Board games", date: "tomorrow", start_time: "6pm" } }] },
+      { content: "movie night at 8, or board games at 6?" },
+    );
+    await page.fill("#composer-input", "we should do something tomorrow");
+    await page.keyboard.press("Enter");
+    await page.waitForSelector('.plan-change[data-status="pending"] >> nth=1');
+    expect(await page.$$eval(".plan-change-summary", (nodes) => nodes.map((n) => n.textContent))).toEqual([
+      expect.stringMatching(/^📅 Add: .*: Hangout: Movie night, 8:00p$/),
+      expect.stringMatching(/^📅 Add: .*: Hangout: Board games, 6:00p$/),
+    ]);
+    await page.click('.plan-change:has-text("Movie night") button:has-text("Yes")');
+    await page.waitForSelector('.plan-change[data-status="applied"]:has-text("Movie night")');
+    await page.click('.plan-change:has-text("Board games") button:has-text("No")');
+    await page.waitForSelector('.plan-change[data-status="declined"]:has-text("Board games")');
+    expect(await page.textContent('.plan-change[data-status="declined"] .plan-change-status')).toBe("✕ Not done (you tapped No)");
+    expect(app.store.plans.list().map((p) => p.title)).toEqual(["Movie night"]);
+    // After a reload, the cards are still there, settled.
+    await page.reload();
+    await page.waitForSelector('.plan-change[data-status="applied"]');
+    expect(await page.locator(".plan-change button").count()).toBe(0);
     expect(t.errors).toEqual([]);
   });
 

@@ -35,7 +35,7 @@ const SILLYTAVERN = [
 // ----------------------------------------------------------------- reading
 
 describe("reading an export", () => {
-  test("SillyTavern's .jsonl: the header, who's who, bubbles, and what's left out", () => {
+  test("SillyTavern's .jsonl: the header, who's who, bubbles, and what's left out", async () => {
     const chat = parseChat(SILLYTAVERN, NOW);
     expect(chat.format).toBe("sillytavern");
     expect(chat.messages.map((m) => [m.author, m.bubbles])).toEqual([
@@ -53,7 +53,7 @@ describe("reading an export", () => {
     expect(chat.skipped).toEqual({ system: 1, empty: 1, unreadable: 1 });
   });
 
-  test("the dates chat exports use", () => {
+  test("the dates chat exports use", async () => {
     expect(parseDate("June 26, 2026 9:14pm")).toEqual(new Date(2026, 5, 26, 21, 14));
     expect(parseDate("Jun 26, 2026, 12:05 AM")).toEqual(new Date(2026, 5, 26, 0, 5));
     expect(parseDate("September 3, 2026 at 12:30 pm")).toEqual(new Date(2026, 8, 3, 12, 30));
@@ -64,7 +64,7 @@ describe("reading an export", () => {
     for (const nothing of ["", "someday", null, undefined, {}]) expect(parseDate(nothing)).toBeNull();
   });
 
-  test("a JSON list with role and content, and undated messages", () => {
+  test("a JSON list with role and content, and undated messages", async () => {
     const chat = parseChat(
       JSON.stringify([
         { role: "user", content: "hi", timestamp: new Date(2026, 6, 1, 10, 0).getTime() },
@@ -83,19 +83,19 @@ describe("reading an export", () => {
     expect(parseChat(JSON.stringify({ messages: [{ role: "user", content: "yo" }] }), NOW).messages).toHaveLength(1);
   });
 
-  test("names from the header, when messages don't say who's the user", () => {
+  test("names from the header, when messages don't say who's the user", async () => {
     const text = [{ user_name: "Sam", character_name: "Kit" }, { name: "Sam", mes: "hi" }, { name: "Kit", mes: "hey" }].map((l) => JSON.stringify(l)).join("\n");
     expect(parseChat(text, NOW).messages.map((m) => m.author)).toEqual(["user", "kitsikai"]);
   });
 
-  test("no dates at all: a second apart, ending now; future dates become now", () => {
+  test("no dates at all: a second apart, ending now; future dates become now", async () => {
     const undated = parseChat(JSON.stringify([{ role: "user", content: "a" }, { role: "assistant", content: "b" }]), NOW);
     expect(undated.messages.map((m) => m.createdAt)).toEqual([new Date(NOW.getTime() - 2000).toISOString(), new Date(NOW.getTime() - 1000).toISOString()]);
     const future = parseChat(JSON.stringify([{ role: "user", content: "a", date: "2030-01-01T00:00:00Z" }]), NOW);
     expect(future.messages[0]!.createdAt).toBe(NOW.toISOString());
   });
 
-  test("a file it can't read describes its layout, never its text", () => {
+  test("a file it can't read describes its layout, never its text", async () => {
     const error = (() => {
       try {
         parseChat(JSON.stringify([{ sender: "me", body: "SECRET words", at: 5, tags: ["x"] }]), NOW);
@@ -111,7 +111,7 @@ describe("reading an export", () => {
     expect(describeLayout(["text", [1], null])).toBe("record 1: text\nrecord 2: list\nrecord 3: empty");
   });
 
-  test("the preview has counts, names and dates: no text", () => {
+  test("the preview has counts, names and dates: no text", async () => {
     const preview = previewOf(parseChat(SILLYTAVERN, NOW));
     expect(preview).toEqual({
       format: "sillytavern",
@@ -226,23 +226,23 @@ describe("importing into the app", () => {
   test("search_history finds older messages, in every channel", async () => {
     const { data } = await call("POST", "/api/import", { text: SILLYTAVERN, newChannel: "lumiverse" });
     const ctx = { store: app.store, channel: general, now: NOW };
-    expect(runTool(ctx, "search_history", { query: "pineapple" })).toMatchObject({
+    expect(await runTool(ctx, "search_history", { query: "pineapple" })).toMatchObject({
       ok: true,
       result: [{ when: "Sat, Jun 27 2026, 8:02 AM", channel: "#lumiverse", from: "them", text: "PINEAPPLE morning" }],
       summary: 'searched the history for "pineapple"',
     });
     // Every word has to be there.
-    expect(runTool(ctx, "search_history", { query: "tired still" }).result).toHaveLength(1);
-    expect(runTool(ctx, "search_history", { query: "tired pineapple" }).result).toEqual({ note: 'Nothing older mentions "tired pineapple".' });
+    expect((await runTool(ctx, "search_history", { query: "tired still" })).result).toHaveLength(1);
+    expect((await runTool(ctx, "search_history", { query: "tired pineapple" })).result).toEqual({ note: 'Nothing older mentions "tired pineapple".' });
     // % and _ are just characters.
-    expect(runTool(ctx, "search_history", { query: "%" }).result).toEqual({ note: 'Nothing older mentions "%".' });
-    expect(runTool(ctx, "search_history", { query: "tired", channel: "#general" }).result).toEqual({ note: 'Nothing older mentions "tired".' });
+    expect((await runTool(ctx, "search_history", { query: "%" })).result).toEqual({ note: 'Nothing older mentions "%".' });
+    expect((await runTool(ctx, "search_history", { query: "tired", channel: "#general" })).result).toEqual({ note: 'Nothing older mentions "tired".' });
     // What's already in view in her own channel isn't found again.
     const inChannel = { store: app.store, channel: data.channel as Channel, now: NOW };
-    expect(runTool(inChannel, "search_history", { query: "tired" }).result).toEqual({ note: 'Nothing older mentions "tired".' });
+    expect((await runTool(inChannel, "search_history", { query: "tired" })).result).toEqual({ note: 'Nothing older mentions "tired".' });
     app.store.updateSettings({ historyLimit: 1 });
-    expect(runTool(inChannel, "search_history", { query: "tired" }).result).toHaveLength(1);
-    expect(runTool(ctx, "search_history", {}).ok).toBe(false);
+    expect((await runTool(inChannel, "search_history", { query: "tired" })).result).toHaveLength(1);
+    expect((await runTool(ctx, "search_history", {})).ok).toBe(false);
   });
 
   test("catching up: the notes model reads it back, and what's worth knowing goes on her scratchpad", async () => {
@@ -276,7 +276,7 @@ describe("importing into the app", () => {
     expect(app.store.memory.notes().map((n) => n.text)).toEqual(["an early thing", "a later thing"]);
   });
 
-  test("parts never split a message", () => {
+  test("parts never split a message", async () => {
     expect(partsOf(["aaaa", "bbbb", "cc", "dddddddd"], 9)).toEqual(["aaaa\nbbbb", "cc", "dddddddd"]);
   });
 

@@ -42,7 +42,7 @@ afterEach(async () => {
 const run = (name: string, args: Record<string, unknown> = {}) => runTool(ctx, name, args);
 
 describe("the tools", () => {
-  test("are the binder lookups, keeping trackers, her notes (stage 7), and do_nothing", () => {
+  test("are the binder lookups, keeping trackers, planner changes, her notes (stage 7), and do_nothing", async () => {
     expect(TOOL_NAMES).toEqual([
       "look_up_plans",
       "find_plans",
@@ -51,6 +51,9 @@ describe("the tools", () => {
       "make_tracker",
       "log_sticker",
       "remove_sticker",
+      "add_plan",
+      "change_plan",
+      "remove_plan",
       "read_channel",
       "search_history",
       "jot_note",
@@ -59,63 +62,64 @@ describe("the tools", () => {
     ]);
   });
 
-  test("look_up_plans: plans between two dates, described", () => {
-    app.store.plans.create({ kind: "shift", title: "Work", startDate: "2026-10-01", startTime: "22:00", endTime: "06:00", drawStart: "23:00", drawEnd: "03:00" });
-    app.store.plans.create({ kind: "appointment", title: "Dentist", startDate: "2026-10-02", startTime: "15:00" });
-    const outcome = run("look_up_plans", { from: "2026-10-01", to: "2026-10-07" });
+  test("look_up_plans: plans between two dates, described", async () => {
+    const work = app.store.plans.create({ kind: "shift", title: "Work", startDate: "2026-10-01", startTime: "22:00", endTime: "06:00", drawStart: "23:00", drawEnd: "03:00" });
+    const dentist = app.store.plans.create({ kind: "appointment", title: "Dentist", startDate: "2026-10-02", startTime: "15:00" });
+    const outcome = await run("look_up_plans", { from: "2026-10-01", to: "2026-10-07" });
     expect(outcome).toMatchObject({ ok: true, summary: "looked up plans for Oct 1–7" });
+    // Each with its plan_id, for changing or removing it.
     expect(outcome.result).toEqual([
-      { day: "Thu, Oct 1", date: "2026-10-01", plan: "Work (shift) 10:00p–6:00a, 8h, draw 11:00p–3:00a (4h) (not confirmed yet)" },
-      { day: "Fri, Oct 2", date: "2026-10-02", plan: "Appointment: Dentist, 3:00p (not confirmed yet)" },
+      { day: "Thu, Oct 1", date: "2026-10-01", plan: "Work (shift) 10:00p–6:00a, 8h, draw 11:00p–3:00a (4h) (not confirmed yet)", plan_id: work.id },
+      { day: "Fri, Oct 2", date: "2026-10-02", plan: "Appointment: Dentist, 3:00p (not confirmed yet)", plan_id: dentist.id },
     ]);
-    expect(run("look_up_plans", { from: "today", to: "tomorrow", kind: "birthday" }).result).toEqual({
+    expect((await run("look_up_plans", { from: "today", to: "tomorrow", kind: "birthday" })).result).toEqual({
       note: "Nothing planned between Mon, Sep 28 and Tue, Sep 29.",
     });
   });
 
-  test("look_up_plans: explains mistakes so the model can fix them", () => {
-    expect(run("look_up_plans", { from: "next week", to: "2026-10-01" })).toMatchObject({ ok: false });
-    expect(run("look_up_plans", { from: "2026-10-05", to: "2026-10-01" }).summary).toContain("on or after");
-    expect(run("look_up_plans", { from: "2026-01-01", to: "2026-12-31" }).summary).toContain("more than 92 days");
-    expect(run("look_up_plans", { from: "today", to: "today", kind: "party" }).summary).toContain("kind");
+  test("look_up_plans: explains mistakes so the model can fix them", async () => {
+    expect(await run("look_up_plans", { from: "next week", to: "2026-10-01" })).toMatchObject({ ok: false });
+    expect((await run("look_up_plans", { from: "2026-10-05", to: "2026-10-01" })).summary).toContain("on or after");
+    expect((await run("look_up_plans", { from: "2026-01-01", to: "2026-12-31" })).summary).toContain("more than 92 days");
+    expect((await run("look_up_plans", { from: "today", to: "today", kind: "party" })).summary).toContain("kind");
   });
 
-  test("find_plans: when a plan happens next (or last)", () => {
-    app.store.plans.create({ kind: "birthday", title: "Mia's birthday", startDate: "2020-10-02", repeats: "yearly", checked: true });
-    app.store.plans.create({ kind: "appointment", title: "Dentist", startDate: "2026-09-01", startTime: "10:00", checked: true });
-    expect(run("find_plans", { query: "mia" }).result).toEqual([
-      { when: "next", day: "Fri, Oct 2", date: "2026-10-02", plan: "Birthday: Mia's birthday, all day, every year" },
+  test("find_plans: when a plan happens next (or last)", async () => {
+    const mia = app.store.plans.create({ kind: "birthday", title: "Mia's birthday", startDate: "2020-10-02", repeats: "yearly", checked: true });
+    const dentist = app.store.plans.create({ kind: "appointment", title: "Dentist", startDate: "2026-09-01", startTime: "10:00", checked: true });
+    expect((await run("find_plans", { query: "mia" })).result).toEqual([
+      { when: "next", day: "Fri, Oct 2", date: "2026-10-02", plan: "Birthday: Mia's birthday, all day, every year", plan_id: mia.id },
     ]);
-    expect(run("find_plans", { query: "dentist" }).result).toEqual([
-      { when: "last", day: "Tue, Sep 1", date: "2026-09-01", plan: "Appointment: Dentist, 10:00a" },
+    expect((await run("find_plans", { query: "dentist" })).result).toEqual([
+      { when: "last", day: "Tue, Sep 1", date: "2026-09-01", plan: "Appointment: Dentist, 10:00a", plan_id: dentist.id },
     ]);
-    expect(run("find_plans", { query: "gym" }).result).toEqual({ note: 'No plans mention "gym".' });
+    expect((await run("find_plans", { query: "gym" })).result).toEqual({ note: 'No plans mention "gym".' });
   });
 
-  test("list_trackers and look_up_log", () => {
+  test("list_trackers and look_up_log", async () => {
     const headache = app.store.trackers.create({ name: "headache", kind: "scale", hintWords: ["head"] });
     const meds = app.store.trackers.create({ name: "meds", kind: "yesno", canBringUp: false });
     app.store.trackers.addEntry({ trackerId: headache.id, date: "2026-09-26", value: 6 });
     app.store.trackers.addEntry({ trackerId: meds.id, date: "2026-09-27", value: "yes", source: "confirmed" });
 
-    expect(run("list_trackers").result).toEqual([
+    expect((await run("list_trackers")).result).toEqual([
       { name: "headache", records: "1 to 10", hint_words: ["head"], you_may_bring_it_up: true },
       { name: "meds", records: "yes or no", hint_words: [], you_may_bring_it_up: false },
     ]);
-    expect(run("look_up_log").result).toEqual([
+    expect((await run("look_up_log")).result).toEqual([
       { entry: "Sun, Sep 27: meds yes", how: "you asked and they confirmed" },
       { entry: "Sat, Sep 26: headache 6/10", how: "they logged it" },
     ]);
-    const onlyHeadaches = run("look_up_log", { tracker: "Headache", from: "2026-09-01", to: "2026-09-30" });
+    const onlyHeadaches = await run("look_up_log", { tracker: "Headache", from: "2026-09-01", to: "2026-09-30" });
     expect(onlyHeadaches.summary).toBe("checked the headache log for Sep 1–30");
-    expect(run("look_up_log", { tracker: "gym" }).summary).toContain('There\'s no tracker called "gym"');
+    expect((await run("look_up_log", { tracker: "gym" })).summary).toContain('There\'s no tracker called "gym"');
   });
 
-  test("read_channel: another channel's latest messages", () => {
+  test("read_channel: another channel's latest messages", async () => {
     const gaming = app.store.createChannel({ name: "gaming", kind: "text" });
     app.store.addMessage({ channelId: gaming.id, author: "user", content: "finally beat the boss", createdAt: new Date(2026, 8, 28, 10, 30).toISOString() });
     app.store.addMessage({ channelId: gaming.id, author: "kitsikai", content: "LETS GO", createdAt: new Date(2026, 8, 28, 10, 31).toISOString() });
-    expect(run("read_channel", { channel: "#gaming" })).toMatchObject({
+    expect(await run("read_channel", { channel: "#gaming" })).toMatchObject({
       ok: true,
       summary: "read #gaming",
       result: [
@@ -123,12 +127,12 @@ describe("the tools", () => {
         { from: "you", text: "LETS GO", when: "29 minutes ago" },
       ],
     });
-    expect(run("read_channel", { channel: "general" }).summary).toContain("That's this channel");
-    expect(run("read_channel", { channel: "planner" }).summary).toContain("no text channel called #planner");
+    expect((await run("read_channel", { channel: "general" })).summary).toContain("That's this channel");
+    expect((await run("read_channel", { channel: "planner" })).summary).toContain("no text channel called #planner");
   });
 
-  test("unknown tools are explained", () => {
-    expect(run("book_flight").summary).toContain('There\'s no tool called "book_flight"');
+  test("unknown tools are explained", async () => {
+    expect((await run("book_flight")).summary).toContain('There\'s no tool called "book_flight"');
   });
 });
 
@@ -137,19 +141,19 @@ describe("keeping their trackers, like they can", () => {
   const yours = (content: string) => app.store.addMessage({ channelId: general.id, author: "user", content, createdAt: new Date(2026, 8, 28, 10, 59).toISOString() });
   const stickers = () => app.store.trackers.entries().map((e) => ({ date: e.date, value: e.value, source: e.source }));
 
-  test("make_tracker: a new tracker, with what it records, hint words, and whether she may bring it up", () => {
+  test("make_tracker: a new tracker, with what it records, hint words, and whether she may bring it up", async () => {
     const events: any[] = [];
     ctx.events = app.events;
     app.events.listen((e) => events.push(e));
-    const made = run("make_tracker", { name: " Migraine ", records: "1 to 10", hint_words: ["Head hurts", "migraine"], may_bring_up: false });
+    const made = await run("make_tracker", { name: " Migraine ", records: "1 to 10", hint_words: ["Head hurts", "migraine"], may_bring_up: false });
     expect(made).toMatchObject({ ok: true, summary: "made a tracker: Migraine (1 to 10)" });
     expect(made.result).toMatchObject({ made: { name: "Migraine", records: "1 to 10", hint_words: ["head hurts", "migraine"], you_may_bring_it_up: false } });
     expect(app.store.trackers.list()).toEqual([expect.objectContaining({ name: "Migraine", kind: "scale", canBringUp: false })]);
     expect(events).toContainEqual({ type: "log" });
 
     // Other ways to say what it records; she may bring it up unless told otherwise.
-    expect(run("make_tracker", { name: "meds", records: "yes/no" }).ok).toBe(true);
-    expect(run("make_tracker", { name: "payday", records: "a note" }).ok).toBe(true);
+    expect((await run("make_tracker", { name: "meds", records: "yes/no" })).ok).toBe(true);
+    expect((await run("make_tracker", { name: "payday", records: "a note" })).ok).toBe(true);
     expect(app.store.trackers.list().map((t) => [t.name, t.kind, t.canBringUp])).toEqual([
       ["Migraine", "scale", false],
       ["meds", "yesno", true],
@@ -157,83 +161,83 @@ describe("keeping their trackers, like they can", () => {
     ]);
   });
 
-  test("make_tracker: explains mistakes, and won't make the same one twice", () => {
-    run("make_tracker", { name: "headache", records: "1 to 10" });
-    expect(run("make_tracker", { name: "Headache", records: "yes or no" }).summary).toBe('There\'s already a tracker called "headache" (1 to 10). Log to it with log_sticker.');
-    expect(run("make_tracker", { name: "gym", records: "sometimes" }).summary).toBe('"records" must be one of: "yes or no", "1 to 10", "a note".');
-    expect(run("make_tracker", { records: "a note" }).summary).toBe('"name" is required.');
-    expect(run("make_tracker", { name: "gym", records: "yes or no", hint_words: "lifting" }).summary).toBe('"hint_words" must be a list of words.');
-    expect(run("make_tracker", { name: "x".repeat(61), records: "yes or no" }).summary).toContain("60 characters");
+  test("make_tracker: explains mistakes, and won't make the same one twice", async () => {
+    await run("make_tracker", { name: "headache", records: "1 to 10" });
+    expect((await run("make_tracker", { name: "Headache", records: "yes or no" })).summary).toBe('There\'s already a tracker called "headache" (1 to 10). Log to it with log_sticker.');
+    expect((await run("make_tracker", { name: "gym", records: "sometimes" })).summary).toBe('"records" must be one of: "yes or no", "1 to 10", "a note".');
+    expect((await run("make_tracker", { records: "a note" })).summary).toBe('"name" is required.');
+    expect((await run("make_tracker", { name: "gym", records: "yes or no", hint_words: "lifting" })).summary).toBe('"hint_words" must be a list of words.');
+    expect((await run("make_tracker", { name: "x".repeat(61), records: "yes or no" })).summary).toContain("60 characters");
     expect(app.store.trackers.list()).toHaveLength(1);
   });
 
-  test("log_sticker: a sticker on today, as hers, linked to your message", () => {
+  test("log_sticker: a sticker on today, as hers, linked to your message", async () => {
     const events: any[] = [];
     ctx.events = app.events;
     app.events.listen((e) => events.push(e));
     const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
     const message = yours("my head is killing me, like a 7");
-    const logged = run("log_sticker", { tracker: "headache", value: 7 });
+    const logged = await run("log_sticker", { tracker: "headache", value: 7 });
     expect(logged).toMatchObject({ ok: true, summary: "logged headache 7/10 for Mon, Sep 28", result: { logged: "Mon, Sep 28: headache 7/10" } });
     expect(app.store.trackers.entries({ trackerId: headache.id })).toEqual([
       expect.objectContaining({ date: "2026-09-28", value: "7", source: "kitsikai", messageId: message.id }),
     ]);
     expect(events).toContainEqual({ type: "log" });
     // look_up_log tells her it was her.
-    expect(run("look_up_log").result).toEqual([{ entry: "Mon, Sep 28: headache 7/10", how: "you logged it yourself" }]);
+    expect((await run("look_up_log")).result).toEqual([{ entry: "Mon, Sep 28: headache 7/10", how: "you logged it yourself" }]);
   });
 
-  test("log_sticker: yesterday or a date, never the future; mistakes are explained", () => {
+  test("log_sticker: yesterday or a date, never the future; mistakes are explained", async () => {
     app.store.trackers.create({ name: "took meds", kind: "yesno" });
     app.store.trackers.create({ name: "headache", kind: "scale" });
-    expect(run("log_sticker", { tracker: "meds", value: "Yes", date: "yesterday" }).summary).toBe("logged took meds yes for Sun, Sep 27");
-    expect(run("log_sticker", { tracker: "took meds", value: "no", date: "2026-09-20" }).ok).toBe(true);
-    expect(run("log_sticker", { tracker: "took meds", value: "yes", date: "tomorrow" }).summary).toBe("Stickers are for what happened: pick today or a day before.");
-    expect(run("log_sticker", { tracker: "headache", value: "11" }).summary).toBe("A scale tracker's value must be a whole number from 1 to 10.");
-    expect(run("log_sticker", { tracker: "gym", value: "yes" }).summary).toContain('There\'s no tracker called "gym"');
-    expect(run("log_sticker", { tracker: "headache" }).summary).toBe('"value" is required.');
+    expect((await run("log_sticker", { tracker: "meds", value: "Yes", date: "yesterday" })).summary).toBe("logged took meds yes for Sun, Sep 27");
+    expect((await run("log_sticker", { tracker: "took meds", value: "no", date: "2026-09-20" })).ok).toBe(true);
+    expect((await run("log_sticker", { tracker: "took meds", value: "yes", date: "tomorrow" })).summary).toBe("Stickers are for what happened: pick today or a day before.");
+    expect((await run("log_sticker", { tracker: "headache", value: "11" })).summary).toBe("A scale tracker's value must be a whole number from 1 to 10.");
+    expect((await run("log_sticker", { tracker: "gym", value: "yes" })).summary).toContain('There\'s no tracker called "gym"');
+    expect((await run("log_sticker", { tracker: "headache" })).summary).toBe('"value" is required.');
     expect(stickers()).toEqual([
       { date: "2026-09-27", value: "yes", source: "kitsikai" },
       { date: "2026-09-20", value: "no", source: "kitsikai" },
     ]);
   });
 
-  test("log_sticker: the same tracker and day again changes it, even one you added; the same value changes nothing", () => {
+  test("log_sticker: the same tracker and day again changes it, even one you added; the same value changes nothing", async () => {
     const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
     app.store.trackers.addEntry({ trackerId: headache.id, date: "2026-09-28", value: 6 });
-    expect(run("log_sticker", { tracker: "headache", value: "6" })).toMatchObject({ summary: "already had headache 6/10 for Mon, Sep 28", result: { already: "Mon, Sep 28: headache 6/10" } });
+    expect(await run("log_sticker", { tracker: "headache", value: "6" })).toMatchObject({ summary: "already had headache 6/10 for Mon, Sep 28", result: { already: "Mon, Sep 28: headache 6/10" } });
     expect(stickers()).toEqual([{ date: "2026-09-28", value: "6", source: "user" }]);
 
     const message = yours("ok it's more like a 9 now");
-    expect(run("log_sticker", { tracker: "headache", value: "9" })).toMatchObject({ summary: "changed headache 9/10 for Mon, Sep 28", result: { changed: "Mon, Sep 28: headache 9/10", was: "6" } });
+    expect(await run("log_sticker", { tracker: "headache", value: "9" })).toMatchObject({ summary: "changed headache 9/10 for Mon, Sep 28", result: { changed: "Mon, Sep 28: headache 9/10", was: "6" } });
     expect(app.store.trackers.entries()).toEqual([expect.objectContaining({ value: "9", source: "kitsikai", messageId: message.id })]);
   });
 
-  test("remove_sticker: takes one off a day, and explains when there's none", () => {
+  test("remove_sticker: takes one off a day, and explains when there's none", async () => {
     const meds = app.store.trackers.create({ name: "took meds", kind: "yesno" });
     app.store.trackers.addEntry({ trackerId: meds.id, date: "2026-09-27", value: "yes" });
     app.store.trackers.addEntry({ trackerId: meds.id, date: "2026-09-28", value: "yes" });
-    expect(run("remove_sticker", { tracker: "took meds" })).toMatchObject({ ok: true, summary: "took off took meds yes for Mon, Sep 28", result: { removed: "Mon, Sep 28: took meds yes" } });
+    expect(await run("remove_sticker", { tracker: "took meds" })).toMatchObject({ ok: true, summary: "took off took meds yes for Mon, Sep 28", result: { removed: "Mon, Sep 28: took meds yes" } });
     expect(stickers()).toEqual([{ date: "2026-09-27", value: "yes", source: "user" }]);
-    expect(run("remove_sticker", { tracker: "took meds" }).summary).toBe("There's no took meds sticker on Mon, Sep 28.");
-    expect(run("remove_sticker", { tracker: "took meds", date: "yesterday" }).ok).toBe(true);
+    expect((await run("remove_sticker", { tracker: "took meds" })).summary).toBe("There's no took meds sticker on Mon, Sep 28.");
+    expect((await run("remove_sticker", { tracker: "took meds", date: "yesterday" })).ok).toBe(true);
     expect(stickers()).toEqual([]);
   });
 
-  test("her pencil notes about the same tracker and day are settled, so processing won't log them again", () => {
+  test("her pencil notes about the same tracker and day are settled, so processing won't log them again", async () => {
     const headache = app.store.trackers.create({ name: "headache", kind: "scale" });
     const note = (date: string, value: string) =>
       app.store.memory.addNote({ kind: "tracker", text: `headache ${value}/10`, origin: "noticed", channelId: general.id, trackerId: headache.id, date, value }, NOW);
     const today = note("2026-09-28", "7");
     const other = note("2026-09-27", "4");
-    run("log_sticker", { tracker: "headache", value: "7" });
+    await run("log_sticker", { tracker: "headache", value: "7" });
     expect(app.store.memory.getNote(today.id).status).toBe("done");
     expect(app.store.memory.getNote(other.id).status).toBe("open");
     expect(app.store.memory.recentLog()[0]).toMatchObject({ action: "committed", text: "headache 7/10", reason: "you logged it yourself" });
 
     // Taking a sticker off tosses the note about it too.
     const again = note("2026-09-28", "7");
-    run("remove_sticker", { tracker: "headache" });
+    await run("remove_sticker", { tracker: "headache" });
     expect(app.store.memory.getNote(again.id).status).toBe("tossed");
     expect(app.store.memory.recentLog()[0]).toMatchObject({ action: "tossed", reason: "you took the sticker off" });
   });
@@ -251,7 +255,7 @@ describe("keeping their trackers, like they can", () => {
 });
 
 describe("today and tomorrow, always in view", () => {
-  test("every plan for both days, and whether they're at work", () => {
+  test("every plan for both days, and whether they're at work", async () => {
     app.store.plans.create({ kind: "shift", title: "Work", startDate: "2026-09-28", startTime: "09:00", endTime: "17:30", drawStart: "10:00", drawEnd: "14:00", checked: true });
     app.store.plans.create({ kind: "hangout", title: "Movies", startDate: "2026-09-29", startTime: "19:00" });
     expect(todayAndTomorrow(app.store, NOW)).toBe(
@@ -265,7 +269,7 @@ describe("today and tomorrow, always in view", () => {
     );
   });
 
-  test("an overnight shift from yesterday still shows today", () => {
+  test("an overnight shift from yesterday still shows today", async () => {
     app.store.plans.create({ kind: "shift", title: "Work", startDate: "2026-09-27", startTime: "22:00", endTime: "06:00", checked: true });
     const early = new Date(2026, 8, 28, 3, 0);
     const text = todayAndTomorrow(app.store, early);
@@ -273,7 +277,7 @@ describe("today and tomorrow, always in view", () => {
     expect(text).toContain("They're at work right now, until 6:00 AM.");
   });
 
-  test("on-call is described as free unless called in", () => {
+  test("on-call is described as free unless called in", async () => {
     const oncall = app.store.plans.create({ kind: "shift", shiftType: "oncall", title: "On call", startDate: "2026-09-28", startTime: "08:00", endTime: "20:00", checked: true });
     expect(workStatus(app.store, NOW)).toBe("They're on call until 8:00 PM: free unless they get called in.");
     expect(workStatus(app.store, NOW, new Set([`${oncall.id}:2026-09-28`]))).toBe("They're at work right now, until 8:00 PM.");

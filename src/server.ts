@@ -67,6 +67,7 @@
  *   POST   /api/proactive/check           Run her snapshot check now ("Check now", for testing)
  *   POST   /api/presence                  The app says whether it's on screen (for notifications)
  *   POST   /api/intimacy/lift             "Bring her back": end the safeword hold
+ *   POST   /api/plan-changes/:id          Yes or No to a planner change she offered (src/planchanges.ts)
  *
  *   POST   /api/channels/:id/images       Send an image: saved, shown, and read by the vision model (src/images.ts)
  *   GET    /api/images/:id                The image in a message, by the message's id
@@ -113,6 +114,7 @@ import { keepAwake, Presence, TermuxNotifier, type Notifier } from "./notify.ts"
 import { Proactive } from "./proactive.ts";
 import { registerPrompt } from "./intimacy.ts";
 import { JEV_LOG_HOURS } from "./jevlog.ts";
+import { settleChange } from "./planchanges.ts";
 import { checkUpload, ImageFiles, ImageReader } from "./images.ts";
 import { CatchUp } from "./catchup.ts";
 import { ImportError, importChat, MAX_IMPORT_CHARS, parseChat, previewOf, type ImportTarget } from "./importer.ts";
@@ -450,9 +452,12 @@ export function createApp(config: Config, options: AppOptions = {}): App {
     {
       method: "GET",
       pattern: "/api/channels/:id/messages",
-      handler: (_request, { id }) =>
-        // Her actions are shown under the messages their turn wrote.
-        json({ messages: store.getMessages(id!), toolCalls: store.toolLog.forChannel(id!) }),
+      handler: (_request, { id }) => {
+        // Her actions, and the planner changes she offered, are shown under
+        // the messages their turn wrote. (Changes a day old expire first.)
+        store.planChanges.pending(now());
+        return json({ messages: store.getMessages(id!), toolCalls: store.toolLog.forChannel(id!), planChanges: store.planChanges.forChannel(id!) });
+      },
     },
     {
       method: "GET",
@@ -834,6 +839,20 @@ export function createApp(config: Config, options: AppOptions = {}): App {
       method: "POST",
       pattern: "/api/proactive/check",
       handler: async () => json({ check: await proactive.check("manual") }),
+    },
+    {
+      method: "POST",
+      pattern: "/api/plan-changes/:id",
+      // Yes or No, tapped under her message, to a planner change she offered (src/planchanges.ts).
+      handler: async (request, { id }) => {
+        const body = await readObject(request);
+        if (body.answer !== "yes" && body.answer !== "no") throw new HttpError(400, '"answer" must be "yes" or "no".');
+        store.planChanges.pending(now()); // a day old: expired, not answerable
+        const change = store.planChanges.get(id!);
+        if (change.status !== "pending") throw new HttpError(409, "That's been settled already.");
+        const tapped = body.answer === "yes" ? "you tapped Yes" : "you tapped No";
+        return json({ change: settleChange({ store, events }, change, body.answer, tapped, null, now()) });
+      },
     },
     {
       method: "POST",

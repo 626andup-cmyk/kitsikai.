@@ -456,6 +456,30 @@ export const MIGRATIONS: Migration[] = [
   `
   ALTER TABLE messages ADD COLUMN image TEXT;
   `,
+
+  // ---------------------------------------------------------------- 13
+  // Planner changes she offers or makes (src/planchanges.ts): adding,
+  // changing or removing a plan, waiting for your yes, and how each ended.
+  `
+  CREATE TABLE plan_changes (
+    id          TEXT PRIMARY KEY,
+    action      TEXT NOT NULL CHECK (action IN ('add', 'change', 'remove')),
+    -- The plan it changes or removes; for an add, the plan it made. NULL if deleted since.
+    plan_id     TEXT REFERENCES plans (id) ON DELETE SET NULL,
+    -- The plan as it would be afterwards, as JSON (NULL for a removal).
+    plan        TEXT,
+    summary     TEXT NOT NULL,
+    before      TEXT,
+    status      TEXT NOT NULL CHECK (status IN ('pending', 'applied', 'declined', 'expired', 'failed')),
+    reason      TEXT,
+    channel_id  TEXT REFERENCES channels (id) ON DELETE CASCADE,
+    turn_id     TEXT,
+    message_id  TEXT REFERENCES messages (id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  CREATE INDEX plan_changes_by_channel ON plan_changes (channel_id, created_at);
+  `,
 ];
 
 /** How many prepared queries to keep, at most (the app has a few hundred). */

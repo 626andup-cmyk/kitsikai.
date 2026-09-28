@@ -144,7 +144,7 @@ describe("what every model gets instead", () => {
     await sendImage();
     await app.images.settled();
     const other = app.store.createChannel({ name: "other", kind: "text" });
-    const found = runTool({ store: app.store, channel: other, now: new Date() }, "search_history", { query: "retriever" });
+    const found = await runTool({ store: app.store, channel: other, now: new Date() }, "search_history", { query: "retriever" });
     expect(found.result).toEqual([expect.objectContaining({ from: "them", text: `[Sent an image: ${SEEN}]` })]);
   });
 
@@ -155,7 +155,7 @@ describe("what every model gets instead", () => {
     expect(app.store.intimacy.get()).toBeNull();
   });
 
-  test("modelText: text as it is; an image as its description, or what happened", () => {
+  test("modelText: text as it is; an image as its description, or what happened", async () => {
     const base = { id: "m", channelId: "c", author: "user" as const, turnId: null, createdAt: "" };
     const image = { file: "f", mimeType: "image/png", width: null, height: null, error: null, readBy: null, model: null };
     expect(modelText({ ...base, content: "hi" })).toBe("hi");
